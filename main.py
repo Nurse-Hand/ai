@@ -19,7 +19,7 @@ from app.services.speaker_store import SpeakerStore
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     yield
-    await audio.drain_audio_finalizers()
+    await audio.drain_audio_workers()
 
 
 app = FastAPI(title="Nurse Hand AI Server", version="1.0.0", lifespan=lifespan)

@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import suppress
 from io import BytesIO
 import threading
 import time
@@ -319,6 +320,20 @@ def test_blocking_diarization_timeout_tracks_worker_before_cleanup(
     assert response.status_code == 504
     assert response.json()["error"]["code"] == "AI_UPSTREAM_TIMEOUT"
     assert elapsed < 0.2
+    assert not finished.is_set()
+    assert cleanup_observations == []
+    assert len(list(tmp_path.glob("internal-analyze-*"))) == 1
+
+    asyncio.run(audio_router.drain_audio_workers(timeout_seconds=0.001))
+
+    async def cancel_shutdown_drain():
+        drain = asyncio.create_task(audio_router.drain_audio_workers(timeout_seconds=5))
+        await asyncio.sleep(0)
+        drain.cancel()
+        with suppress(asyncio.CancelledError):
+            await drain
+
+    asyncio.run(cancel_shutdown_drain())
     assert not finished.is_set()
     assert cleanup_observations == []
     assert len(list(tmp_path.glob("internal-analyze-*"))) == 1
