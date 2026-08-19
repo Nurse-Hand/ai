@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 
 from fastapi import FastAPI
@@ -53,6 +54,18 @@ class SlowEngine:
     def recognize(self, _cell: Image.Image, *, timeout_seconds: float | None = None) -> OcrCandidate:
         time.sleep(0.01)
         return OcrCandidate("D", 0.95)
+
+
+class ObservableInferenceGate(ScheduleOcrInferenceGate):
+    def __init__(self) -> None:
+        super().__init__(1)
+        self.acquired = threading.Event()
+
+    def acquire(self) -> bool:
+        result = super().acquire()
+        if result:
+            self.acquired.set()
+        return result
 
 
 def synthetic_png() -> bytes:
@@ -168,7 +181,7 @@ def test_inference_runs_off_event_loop_and_capacity_is_fail_fast() -> None:
         app.include_router(router)
         app.add_exception_handler(ScheduleOcrError, schedule_ocr_error_handler)
         app.dependency_overrides[get_schedule_ocr_service] = slow_service
-        gate = ScheduleOcrInferenceGate(1)
+        gate = ObservableInferenceGate()
         app.dependency_overrides[get_schedule_ocr_inference_gate] = lambda: gate
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as async_client:
@@ -183,7 +196,7 @@ def test_inference_runs_off_event_loop_and_capacity_is_fail_fast() -> None:
                 },
             }
             first = asyncio.create_task(async_client.post("/internal/v1/schedules/ocr", **request))
-            await asyncio.sleep(0.03)
+            assert await asyncio.to_thread(gate.acquired.wait, 1.0)
             assert not first.done()
             started = time.monotonic()
             second = await async_client.post("/internal/v1/schedules/ocr", **request)

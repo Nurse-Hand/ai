@@ -6,6 +6,8 @@ from typing import Annotated, Any, Literal
 from fastapi import Request
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
 from starlette.datastructures import UploadFile
+from starlette.exceptions import HTTPException
+from starlette.formparsers import MultiPartException
 
 from app.schedule_ocr.errors import invalid_request
 
@@ -50,8 +52,12 @@ class ScheduleOcrMultipartRequest:
 
 
 async def parse_schedule_ocr_form(request: Request) -> AsyncIterator[ScheduleOcrMultipartRequest]:
-    form = await request.form()
+    form = None
     try:
+        try:
+            form = await request.form()
+        except (HTTPException, MultiPartException, ValueError) as exc:
+            raise invalid_request("multipart 요청 형식이 올바르지 않습니다.") from exc
         items = form.multi_items()
         keys = [key for key, _value in items]
         if set(keys) != FORM_FIELDS or len(keys) != len(FORM_FIELDS):
@@ -69,4 +75,5 @@ async def parse_schedule_ocr_form(request: Request) -> AsyncIterator[ScheduleOcr
             raise invalid_request("multipart 필드 형식이 올바르지 않습니다.") from exc
         yield ScheduleOcrMultipartRequest(image=image, fields=fields)
     finally:
-        await form.close()
+        if form is not None:
+            await form.close()

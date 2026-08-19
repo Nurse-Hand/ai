@@ -110,6 +110,60 @@ def test_route_retains_image_byte_limit_below_multipart_limit(monkeypatch) -> No
         app.dependency_overrides.pop(get_schedule_ocr_service, None)
 
 
+def test_main_app_malformed_multipart_has_stable_error_envelope(monkeypatch) -> None:
+    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-token")
+    client = TestClient(app)
+    headers = {"X-Internal-Token": "test-token"}
+
+    missing_boundary = client.post(
+        "/internal/v1/schedules/ocr",
+        headers={**headers, "Content-Type": "multipart/form-data"},
+        content=b"not-a-valid-multipart-body",
+    )
+    mismatched_boundary = client.post(
+        "/internal/v1/schedules/ocr",
+        headers={**headers, "Content-Type": "multipart/form-data; boundary=expected-boundary"},
+        content=b"--different-boundary\r\nmalformed\r\n--different-boundary--\r\n",
+    )
+    truncated = client.post(
+        "/internal/v1/schedules/ocr",
+        headers={**headers, "Content-Type": "multipart/form-data; boundary=cut"},
+        content=b'--cut\r\nContent-Disposition: form-data; name="image"; filename="private-name.png"\r\n\r\npartial',
+    )
+
+    for response in (missing_boundary, mismatched_boundary, truncated):
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "SCHEDULE_OCR_INVALID_REQUEST"
+        assert response.json()["error"]["message"] in {
+            "multipart 요청 형식이 올바르지 않습니다.",
+            "multipart 필드가 계약과 일치하지 않습니다.",
+        }
+        assert "boundary" not in response.text.lower()
+        assert "private-name.png" not in response.text
+
+
+def test_main_app_extra_field_and_oversize_errors_match_openapi_schema(monkeypatch) -> None:
+    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-token")
+    app.dependency_overrides[get_schedule_ocr_service] = fake_service
+    try:
+        client = TestClient(app)
+        files, data = request_parts()
+        data["unexpected"] = "not-allowed"
+        extra = client.post(
+            "/internal/v1/schedules/ocr", headers={"X-Internal-Token": "test-token"},
+            files=files, data=data,
+        )
+        assert extra.status_code == 400
+        assert set(extra.json()) == {"error"}
+        assert set(extra.json()["error"]) == {"code", "message"}
+
+        schema = client.get("/openapi.json").json()
+        error_ref = schema["paths"]["/internal/v1/schedules/ocr"]["post"]["responses"]["400"]["content"]["application/json"]["schema"]["$ref"]
+        assert error_ref == "#/components/schemas/ScheduleOcrErrorResponse"
+    finally:
+        app.dependency_overrides.pop(get_schedule_ocr_service, None)
+
+
 def test_streaming_body_limit_counts_chunks_without_content_length() -> None:
     messages = [
         {"type": "http.request", "body": b"1234", "more_body": True},
