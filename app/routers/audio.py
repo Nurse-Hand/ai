@@ -14,7 +14,7 @@ from app.audio_contracts import (
 from app.auth import verify_internal_token
 from app.config import Settings, get_settings
 from app.deps import get_diarization_service, get_transcription_service
-from app.errors import InferenceFailure, InferenceFailureCode
+from app.errors import INTERNAL_ERROR_RESPONSES, InferenceFailure, InferenceFailureCode
 from app.services.analysis import find_best_overlap
 from app.services.audio import normalize_audio, persist_upload
 from app.services.diarization import DiarizationService
@@ -24,6 +24,7 @@ router = APIRouter(
     prefix="/internal/v1/audio",
     tags=["internal-audio"],
     dependencies=[Depends(verify_internal_token)],
+    responses=INTERNAL_ERROR_RESPONSES,
 )
 
 

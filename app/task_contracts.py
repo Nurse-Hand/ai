@@ -3,9 +3,12 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, Field, StringConstraints, model_validator
 
-from app.contract_base import StrictCamelModel
+from app.contract_base import StrictCamelModel, bounded_text
 
-BoundedText = Annotated[str, StringConstraints(min_length=1, max_length=1000)]
+BoundedText = bounded_text(1000)
+Title = bounded_text(200)
+Description = bounded_text(1000, min_length=0)
+Reason = bounded_text(500)
 CandidateKey = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$")]
 TaskPriority = Literal["CRITICAL", "HIGH", "NORMAL"]
 TaskAiConfidence = Literal["HIGH", "MEDIUM", "LOW"]
@@ -36,8 +39,8 @@ class ExtractTasksRequest(StrictCamelModel):
 class ExtractedTaskCandidate(StrictCamelModel):
     candidate_key: CandidateKey
     patient_id: UUID | None
-    title: Annotated[str, StringConstraints(min_length=1, max_length=200)]
-    description: Annotated[str, StringConstraints(max_length=1000)] | None
+    title: Title
+    description: Description | None
     due_at: AwareDatetime | None
     evidence_source_ids: list[UUID] = Field(min_length=1, max_length=1000)
     confidence: TaskAiConfidence
@@ -69,7 +72,7 @@ class PrioritizeTasksRequest(StrictCamelModel):
 class TaskPrioritySuggestion(StrictCamelModel):
     candidate_key: CandidateKey
     suggested_priority: TaskPriority
-    reasons: list[Annotated[str, StringConstraints(min_length=1, max_length=500)]] = Field(
+    reasons: list[Reason] = Field(
         min_length=1, max_length=20
     )
     confidence: TaskAiConfidence

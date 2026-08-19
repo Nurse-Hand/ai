@@ -99,3 +99,23 @@ def test_internal_audio_rejects_unknown_form_field(client, auth_headers, monkeyp
         files={"audio": ("synthetic.wav", b"synthetic", "audio/wav")},
     )
     assert response.status_code == 422
+
+
+def test_audio_response_rejects_string_confidence():
+    from pydantic import ValidationError
+
+    from app.audio_contracts import AudioTranscript
+
+    try:
+        AudioTranscript.model_validate(
+            {
+                "provider": "test",
+                "model": "test",
+                "language": "ko-KR",
+                "text": "synthetic",
+                "confidence": "0.9",
+            }
+        )
+    except ValidationError:
+        return
+    raise AssertionError("string confidence must be rejected")

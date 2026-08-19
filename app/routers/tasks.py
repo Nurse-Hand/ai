@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.auth import verify_internal_token
-from app.errors import InferenceFailure, InferenceFailureCode
+from app.errors import INTERNAL_ERROR_RESPONSES, InferenceFailure, InferenceFailureCode
 from app.llm import call_structured
 from app.task_contracts import (
     ExtractTasksRequest,
@@ -14,6 +14,7 @@ router = APIRouter(
     prefix="/internal/v1/tasks",
     tags=["internal-tasks"],
     dependencies=[Depends(verify_internal_token)],
+    responses=INTERNAL_ERROR_RESPONSES,
 )
 
 EXTRACT_SYSTEM_PROMPT = """Extract follow-up task candidates only from the supplied evidence.

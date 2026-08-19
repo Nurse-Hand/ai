@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from app.errors import InferenceFailure, InferenceFailureCode
@@ -40,7 +38,7 @@ def candidate():
 
 
 def model_result(model, payload):
-    return model.model_validate_json(json.dumps(payload))
+    return model.model_validate(payload)
 
 
 def test_extract_and_prioritize_return_strict_200(client, auth_headers, monkeypatch):
@@ -102,6 +100,14 @@ def test_unknown_request_field_and_invalid_enum_are_rejected(client, auth_header
     body = {"requestId": REQUEST_ID, "candidates": [candidate()]}
     body["candidates"][0]["confidence"] = "CERTAIN"
     assert client.post("/internal/v1/tasks/prioritize", headers=auth_headers, json=body).status_code == 422
+
+
+def test_task_text_whitespace_and_control_characters_are_rejected(client, auth_headers):
+    for summary in (" leading", "trailing ", "control\ntext"):
+        body = extract_body()
+        body["evidence"][0]["summary"] = summary
+        response = client.post("/internal/v1/tasks/extract", headers=auth_headers, json=body)
+        assert response.status_code == 422
 
 
 def test_unknown_evidence_id_from_model_is_rejected(client, auth_headers, monkeypatch):

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import verify_internal_token
-from app.errors import InferenceFailure, InferenceFailureCode
+from app.errors import INTERNAL_ERROR_RESPONSES, InferenceFailure, InferenceFailureCode
 from app.handoff_contracts import (
     EvidenceReference,
     GenerateHandoffRequest,
@@ -15,6 +15,7 @@ router = APIRouter(
     prefix="/internal/v1/handoffs",
     tags=["internal-handoffs"],
     dependencies=[Depends(verify_internal_token)],
+    responses=INTERNAL_ERROR_RESPONSES,
 )
 
 SECTIONS = {"PATIENT_STATUS", "PAIN", "TREATMENT", "DIET", "ACTIVITY", "OBSERVATION"}
@@ -139,7 +140,10 @@ def generate_handoff(req: GenerateHandoffRequest) -> GenerateHandoffResponse:
         expected_patient, expected_evidence = expected
         if warning.patient_id != expected_patient:
             _invalid_response()
-        if {_evidence_key(value) for value in warning.evidence} != expected_evidence:
+        warning_evidence = [_evidence_key(value) for value in warning.evidence]
+        if len(warning_evidence) != len(set(warning_evidence)):
+            _invalid_response()
+        if set(warning_evidence) != expected_evidence:
             _invalid_response()
     if req.include_unverified and seen_warnings != set(unverified):
         _invalid_response()

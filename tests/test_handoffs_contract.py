@@ -1,5 +1,3 @@
-import json
-
 from app.routers import handoffs as handoff_router
 
 REQUEST_ID = "00000000-0000-4000-8000-000000000011"
@@ -42,7 +40,7 @@ def evidence():
 
 
 def model_result(model, payload):
-    return model.model_validate_json(json.dumps(payload))
+    return model.model_validate(payload)
 
 
 def precheck_response():
@@ -151,6 +149,23 @@ def test_invalid_template_and_severity_are_rejected(client, auth_headers):
     assert client.post("/internal/v1/handoffs/precheck", headers=auth_headers, json=body).status_code == 422
 
 
+def test_handoff_scalar_coercion_and_untrimmed_text_are_rejected(client, auth_headers):
+    body = generate_body()
+    body["includeUnverified"] = "false"
+    assert client.post("/internal/v1/handoffs/generate", headers=auth_headers, json=body).status_code == 422
+
+    body = generate_body()
+    body["patients"][0]["tasks"][0]["version"] = "1"
+    assert client.post("/internal/v1/handoffs/generate", headers=auth_headers, json=body).status_code == 422
+
+    body = {"requestId": REQUEST_ID, "patients": patients()}
+    body["patients"][0]["timelineEvents"][0]["summary"] = " leading"
+    assert client.post("/internal/v1/handoffs/precheck", headers=auth_headers, json=body).status_code == 422
+
+    body["patients"][0]["timelineEvents"][0]["summary"] = "control\ttext"
+    assert client.post("/internal/v1/handoffs/precheck", headers=auth_headers, json=body).status_code == 422
+
+
 def test_unknown_handoff_evidence_is_rejected(client, auth_headers, monkeypatch):
     payload = precheck_response()
     payload["questions"][0]["evidence"][0]["sourceId"] = "00000000-0000-4000-8000-000000000099"
@@ -175,6 +190,17 @@ def test_duplicate_section_result_is_rejected(client, auth_headers, monkeypatch)
         "call_structured",
         lambda _prompt, _content, model: model_result(model, payload),
     )
+    response = client.post(
+        "/internal/v1/handoffs/generate", headers=auth_headers, json=generate_body()
+    )
+    assert response.status_code == 502
+
+
+def test_duplicate_warning_evidence_is_rejected(client, auth_headers, monkeypatch):
+    payload = generate_response()
+    payload["warnings"][0]["evidence"].append(evidence())
+    result = model_result(handoff_router.GenerateHandoffResponse, payload)
+    monkeypatch.setattr(handoff_router, "call_structured", lambda *_args: result)
     response = client.post(
         "/internal/v1/handoffs/generate", headers=auth_headers, json=generate_body()
     )

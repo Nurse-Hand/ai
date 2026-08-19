@@ -1,10 +1,16 @@
 import argparse
 import json
+import sys
 from pathlib import Path
 
-from main import app
-
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from fastapi import FastAPI
+
+from app.routers import audio, handoffs, tasks
+
 ARTIFACT = ROOT / "openapi" / "internal-ai-v1.json"
 INTERNAL_PATHS = {
     "/internal/v1/tasks/extract",
@@ -15,11 +21,17 @@ INTERNAL_PATHS = {
 }
 
 
+def build_internal_app() -> FastAPI:
+    internal_app = FastAPI(title="Nurse Hand Internal AI API", version="1.0.0")
+    internal_app.include_router(tasks.router)
+    internal_app.include_router(handoffs.router)
+    internal_app.include_router(audio.router)
+    return internal_app
+
+
 def render_openapi() -> str:
-    schema = app.openapi()
-    schema["paths"] = {
-        path: schema["paths"][path] for path in sorted(INTERNAL_PATHS)
-    }
+    schema = build_internal_app().openapi()
+    schema["paths"] = {path: schema["paths"][path] for path in sorted(INTERNAL_PATHS)}
     return json.dumps(schema, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 

@@ -1,11 +1,13 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, Field, StringConstraints
+from pydantic import AwareDatetime, Field, StrictBool, StrictInt, StringConstraints
 
-from app.contract_base import StrictCamelModel
+from app.contract_base import StrictCamelModel, bounded_text
 
-Text1000 = Annotated[str, StringConstraints(min_length=1, max_length=1000)]
+Text1000 = bounded_text(1000)
+Title200 = bounded_text(200)
+Content5000 = bounded_text(5000)
 SourceType = Literal["TIMELINE_EVENT", "TASK"]
 ClinicalSection = Literal[
     "PATIENT_STATUS", "PAIN", "TREATMENT", "DIET", "ACTIVITY", "OBSERVATION"
@@ -23,10 +25,10 @@ class TimelineEvent(StrictCamelModel):
 
 class SnapshotTask(StrictCamelModel):
     id: UUID
-    title: Annotated[str, StringConstraints(min_length=1, max_length=200)]
+    title: Title200
     due_at: AwareDatetime | None
     effective_priority: Literal["CRITICAL", "HIGH", "NORMAL"]
-    version: int = Field(ge=0)
+    version: StrictInt = Field(ge=0)
     source_references: list[Text1000] = Field(max_length=1000)
 
 
@@ -75,14 +77,14 @@ class HandoffPrecheckItem(StrictCamelModel):
 class GenerateHandoffRequest(StrictCamelModel):
     request_id: UUID
     template_id: Literal["NURSING_HANDOFF_V1"]
-    include_unverified: bool
+    include_unverified: StrictBool
     patients: list[HandoffPatientSnapshot] = Field(max_length=1000)
     precheck_items: list[HandoffPrecheckItem] = Field(max_length=1000)
 
 
 class HandoffSection(StrictCamelModel):
     section: ClinicalSection
-    content: Annotated[str, StringConstraints(min_length=1, max_length=5000)]
+    content: Content5000
     citations: list[EvidenceReference] = Field(max_length=1000)
 
 
