@@ -1,0 +1,321 @@
+{
+  "components": {
+    "schemas": {
+      "Body_recognize_schedule_internal_v1_schedules_ocr_post": {
+        "properties": {
+          "image": {
+            "anyOf": [
+              {
+                "contentMediaType": "application/octet-stream",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "rowIndex": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rowindex"
+          },
+          "templateId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Templateid"
+          },
+          "yearMonth": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yearmonth"
+          }
+        },
+        "title": "Body_recognize_schedule_internal_v1_schedules_ocr_post",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "ScheduleOcrCell": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "needsReview": {
+            "title": "Needsreview",
+            "type": "boolean"
+          },
+          "token": {
+            "enum": [
+              "D",
+              "E",
+              "N",
+              "OFF",
+              "UNKNOWN"
+            ],
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "token",
+          "confidence",
+          "needsReview"
+        ],
+        "title": "ScheduleOcrCell",
+        "type": "object"
+      },
+      "ScheduleOcrErrorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ScheduleOcrErrorResponse",
+        "type": "object"
+      },
+      "ScheduleOcrResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleOcrCell"
+            },
+            "title": "Cells",
+            "type": "array"
+          },
+          "contractVersion": {
+            "const": "schedule-ocr.v1",
+            "default": "schedule-ocr.v1",
+            "title": "Contractversion",
+            "type": "string"
+          },
+          "templateId": {
+            "title": "Templateid",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "yearMonth": {
+            "title": "Yearmonth",
+            "type": "string"
+          }
+        },
+        "required": [
+          "templateId",
+          "yearMonth",
+          "cells",
+          "warnings"
+        ],
+        "title": "ScheduleOcrResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Nurse Hand Schedule OCR Contract",
+    "version": "schedule-ocr.v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/internal/v1/schedules/ocr": {
+      "post": {
+        "operationId": "recognize_schedule_internal_v1_schedules_ocr_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-internal-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_recognize_schedule_internal_v1_schedules_ocr_post",
+                "properties": {
+                  "image": {
+                    "format": "binary",
+                    "type": "string"
+                  },
+                  "rowIndex": {
+                    "example": 3,
+                    "maximum": 15,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "templateId": {
+                    "enum": [
+                      "NURSE_HAND_FIXED_V1"
+                    ],
+                    "type": "string"
+                  },
+                  "yearMonth": {
+                    "example": "2026-08",
+                    "pattern": "^20[0-9]{2}-(0[1-9]|1[0-2])$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "image",
+                  "yearMonth",
+                  "templateId",
+                  "rowIndex"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOcrResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SCHEDULE_OCR_INVALID_REQUEST",
+                    "message": "요청을 처리할 수 없습니다."
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOcrErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOcrErrorResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOcrErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOcrErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOcrErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOcrErrorResponse"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "summary": "Recognize Schedule",
+        "tags": [
+          "schedule-ocr"
+        ]
+      }
+    }
+  }
+}
