@@ -14,6 +14,10 @@ class ScheduleTemplate:
     grid_bottom: int
     row_count: int
     column_count: int = 31
+    aspect_ratio_tolerance: float = 0.03
+    anchor_box: tuple[int, int, int, int] = (48, 48, 144, 112)
+    minimum_anchor_dark_ratio: float = 0.2
+    minimum_grid_line_ratio: float = 0.7
 
 
 # Synthetic, non-identifying MVP template. Tune only from an approved production template.

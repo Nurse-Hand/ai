@@ -16,6 +16,10 @@ def unsupported_image(message: str) -> ScheduleOcrError:
     return ScheduleOcrError("SCHEDULE_OCR_UNSUPPORTED_IMAGE", message, 415)
 
 
+def unsupported_template(message: str) -> ScheduleOcrError:
+    return ScheduleOcrError("SCHEDULE_OCR_UNSUPPORTED_TEMPLATE", message, 422)
+
+
 def decode_failed() -> ScheduleOcrError:
     return ScheduleOcrError("SCHEDULE_OCR_DECODE_FAILED", "이미지를 안전하게 해석할 수 없습니다.", 422)
 

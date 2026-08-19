@@ -5,7 +5,7 @@ from datetime import date
 from PIL import Image, ImageOps
 
 from app.schedule_ocr.engine import CellOcrEngine
-from app.schedule_ocr.errors import invalid_request
+from app.schedule_ocr.errors import invalid_request, unsupported_template
 from app.schedule_ocr.image import decode_image
 from app.schedule_ocr.schemas import ScheduleOcrCell, ScheduleOcrResponse
 from app.schedule_ocr.templates import ScheduleTemplate, get_template
@@ -13,10 +13,54 @@ from app.schedule_ocr.templates import ScheduleTemplate, get_template
 YEAR_MONTH_PATTERN = re.compile(r"^(?P<year>20\d{2})-(?P<month>0[1-9]|1[0-2])$")
 
 
-def selected_cells(image: Image.Image, template: ScheduleTemplate, row_index: int, day_count: int) -> list[Image.Image]:
+def validate_template_structure(image: Image.Image, template: ScheduleTemplate) -> Image.Image:
+    expected_ratio = template.width / template.height
+    actual_ratio = image.width / image.height
+    if abs(actual_ratio - expected_ratio) / expected_ratio > template.aspect_ratio_tolerance:
+        raise unsupported_template("이미지 종횡비가 지원 template과 일치하지 않습니다.")
+
+    normalized = image.resize((template.width, template.height), Image.Resampling.LANCZOS)
+    dark = ImageOps.grayscale(normalized).point(lambda value: 1 if value < 96 else 0, mode="L")
+    anchor = dark.crop(template.anchor_box)
+    anchor_histogram = anchor.histogram()
+    anchor_ratio = anchor_histogram[1] / (anchor.width * anchor.height)
+    if anchor_ratio < template.minimum_anchor_dark_ratio:
+        raise unsupported_template("지원 template anchor를 찾을 수 없습니다.")
+
+    pixels = dark.load()
+    band = 2
+    vertical_positions = [
+        round(template.grid_left + column * (template.grid_right - template.grid_left) / template.column_count)
+        for column in range(template.column_count + 1)
+    ]
+    horizontal_positions = [
+        round(template.grid_top + row * (template.grid_bottom - template.grid_top) / template.row_count)
+        for row in range(template.row_count + 1)
+    ]
+    vertical_ratios = [
+        sum(
+            pixels[x, y]
+            for x in range(max(0, position - band), min(template.width, position + band + 1))
+            for y in range(template.grid_top, template.grid_bottom)
+        ) / ((min(template.width, position + band + 1) - max(0, position - band)) * (template.grid_bottom - template.grid_top))
+        for position in vertical_positions
+    ]
+    horizontal_ratios = [
+        sum(
+            pixels[x, y]
+            for y in range(max(0, position - band), min(template.height, position + band + 1))
+            for x in range(template.grid_left, template.grid_right)
+        ) / ((min(template.height, position + band + 1) - max(0, position - band)) * (template.grid_right - template.grid_left))
+        for position in horizontal_positions
+    ]
+    if min(vertical_ratios) < template.minimum_grid_line_ratio or min(horizontal_ratios) < template.minimum_grid_line_ratio:
+        raise unsupported_template("지원 template 격자 구조를 찾을 수 없습니다.")
+    return normalized
+
+
+def selected_cells(normalized: Image.Image, template: ScheduleTemplate, row_index: int, day_count: int) -> list[Image.Image]:
     if row_index < 0 or row_index >= template.row_count:
         raise invalid_request("rowIndex가 template 범위를 벗어났습니다.")
-    normalized = image.resize((template.width, template.height), Image.Resampling.LANCZOS)
     row_height = (template.grid_bottom - template.grid_top) / template.row_count
     row_top = round(template.grid_top + row_index * row_height)
     row_bottom = round(template.grid_top + (row_index + 1) * row_height)
@@ -82,7 +126,8 @@ class ScheduleOcrService:
             min_height=self.min_image_height,
             max_pixels=self.max_image_pixels,
         )
-        cells = selected_cells(image, template, row_index, calendar.monthrange(year, month)[1])
+        normalized = validate_template_structure(image, template)
+        cells = selected_cells(normalized, template, row_index, calendar.monthrange(year, month)[1])
 
         response_cells: list[ScheduleOcrCell] = []
         for day, cell in enumerate(cells, start=1):

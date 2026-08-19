@@ -21,18 +21,43 @@ class RecordingEngine:
         return self.candidate
 
 
-def synthetic_grid(image_format: str = "PNG", selected_row: int = 3) -> bytes:
+def synthetic_grid(
+    image_format: str = "PNG",
+    selected_row: int = 3,
+    *,
+    grid_offset: int = 0,
+    include_anchor: bool = True,
+    exif_orientation: int | None = None,
+) -> bytes:
     template = FIXED_TEMPLATE_V1
     image = Image.new("RGB", (template.width, template.height), "white")
     draw = ImageDraw.Draw(image)
     row_height = (template.grid_bottom - template.grid_top) / template.row_count
+    if include_anchor:
+        draw.rectangle((60, 56, 132, 104), fill="black")
     for row in range(template.row_count):
         top = round(template.grid_top + row * row_height)
         bottom = round(template.grid_top + (row + 1) * row_height)
         if row != selected_row:
-            draw.rectangle((template.grid_left, top, template.grid_right, bottom), fill="black")
+            draw.rectangle((template.grid_left + 12, top + 12, template.grid_left + 24, bottom - 12), fill="black")
+    for column in range(template.column_count + 1):
+        x = round(template.grid_left + column * (template.grid_right - template.grid_left) / template.column_count) + grid_offset
+        draw.line((x, template.grid_top + grid_offset, x, template.grid_bottom + grid_offset), fill="black", width=5)
+    for row in range(template.row_count + 1):
+        y = round(template.grid_top + row * row_height) + grid_offset
+        draw.line((template.grid_left + grid_offset, y, template.grid_right + grid_offset, y), fill="black", width=5)
+    if exif_orientation is not None:
+        rotation = {3: 180, 6: 90, 8: 270}[exif_orientation]
+        image = image.rotate(rotation, expand=True)
+        exif = image.getexif()
+        exif[274] = exif_orientation
+    else:
+        exif = None
     output = BytesIO()
-    image.save(output, format=image_format, quality=95)
+    save_options = {"quality": 95}
+    if exif is not None:
+        save_options["exif"] = exif
+    image.save(output, format=image_format, **save_options)
     return output.getvalue()
 
 
@@ -109,6 +134,40 @@ def test_png_and_jpeg_decode(image_format: str, content_type: str, filename: str
     assert len(result.cells) == 28
 
 
+@pytest.mark.parametrize("orientation", [3, 6, 8])
+def test_exif_orientation_is_normalized_before_template_validation(orientation: int) -> None:
+    result = service(RecordingEngine()).recognize(
+        image_bytes=synthetic_grid("JPEG", exif_orientation=orientation),
+        content_type="image/jpeg", filename="synthetic.jpg", year_month="2026-02",
+        template_id="NURSE_HAND_FIXED_V1", row_index=3,
+    )
+    assert len(result.cells) == 28
+
+
+@pytest.mark.parametrize("case", ["irrelevant", "aspect", "shifted-grid", "missing-anchor"])
+def test_unrelated_or_misaligned_images_are_unsupported_templates(case: str) -> None:
+    if case == "irrelevant":
+        image = Image.new("RGB", (1600, 1200), "white")
+        output = BytesIO()
+        image.save(output, "PNG")
+        data = output.getvalue()
+    elif case == "aspect":
+        image = Image.new("RGB", (1200, 1200), "white")
+        output = BytesIO()
+        image.save(output, "PNG")
+        data = output.getvalue()
+    elif case == "shifted-grid":
+        data = synthetic_grid(grid_offset=12)
+    else:
+        data = synthetic_grid(include_anchor=False)
+    with pytest.raises(ScheduleOcrError) as raised:
+        service(RecordingEngine()).recognize(
+            image_bytes=data, content_type="image/png", filename="synthetic.png",
+            year_month="2026-02", template_id="NURSE_HAND_FIXED_V1", row_index=3,
+        )
+    assert raised.value.code == "SCHEDULE_OCR_UNSUPPORTED_TEMPLATE"
+
+
 def test_signature_spoof_is_rejected() -> None:
     with pytest.raises(ScheduleOcrError) as raised:
         service(RecordingEngine()).recognize(
@@ -140,7 +199,16 @@ def test_oversize_and_pixel_bomb_are_rejected() -> None:
             image_bytes=data, content_type="image/png", filename="synthetic.png",
             year_month="2026-02", template_id="NURSE_HAND_FIXED_V1", row_index=3,
         )
-    assert bomb.value.status_code == 422
+    assert bomb.value.status_code == 415
+
+
+def test_decode_does_not_mutate_global_pillow_pixel_limit() -> None:
+    original = Image.MAX_IMAGE_PIXELS
+    service(RecordingEngine()).recognize(
+        image_bytes=synthetic_grid(), content_type="image/png", filename="synthetic.png",
+        year_month="2026-02", template_id="NURSE_HAND_FIXED_V1", row_index=3,
+    )
+    assert Image.MAX_IMAGE_PIXELS == original
 
 
 def tesseract_engine() -> TesseractCellOcrEngine:
