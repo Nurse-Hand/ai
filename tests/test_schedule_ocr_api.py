@@ -254,6 +254,41 @@ def test_rolled_upload_is_closed_after_every_route_outcome(
     assert (True, True) in closed
 
 
+def test_rolled_upload_is_closed_when_service_dependency_creation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed: list[tuple[bool, bool]] = []
+    original_close = UploadFile.close
+
+    async def tracking_close(upload: UploadFile) -> None:
+        rolled = bool(getattr(upload.file, "_rolled", False))
+        await original_close(upload)
+        closed.append((rolled, upload.file.closed))
+
+    def unavailable_dependency() -> ScheduleOcrService:
+        raise ScheduleOcrError(
+            "SCHEDULE_OCR_ENGINE_UNAVAILABLE", "OCR engine dependency를 생성할 수 없습니다.", 503,
+        )
+
+    monkeypatch.setattr(UploadFile, "close", tracking_close)
+    test_client = client()
+    test_client.app.dependency_overrides[get_schedule_ocr_service] = unavailable_dependency
+    image = padded_to_rolled_upload(synthetic_png())
+    response = test_client.post(
+        "/internal/v1/schedules/ocr",
+        headers={"X-Internal-Token": "test-token"},
+        files={"image": ("rolled.png", image, "image/png")},
+        data={
+            "yearMonth": "2026-02", "templateId": "NURSE_HAND_FIXED_V1", "rowIndex": "3",
+            "expectedWidth": "1600", "expectedHeight": "1200",
+            "expectedSha256": hashlib.sha256(image).hexdigest(),
+        },
+    )
+
+    assert response.status_code == 503
+    assert (True, True) in closed
+
+
 def test_openapi_declares_required_multipart_and_errors() -> None:
     schema = client().get("/openapi.json").json()
     operation = schema["paths"]["/internal/v1/schedules/ocr"]["post"]
