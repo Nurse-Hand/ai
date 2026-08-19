@@ -4,7 +4,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import Request
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
-from starlette.datastructures import UploadFile
+from starlette.datastructures import FormData, UploadFile
 
 from app.schedule_ocr.errors import invalid_request
 
@@ -20,6 +20,8 @@ FORM_FIELDS = frozenset(
     }
 )
 CANONICAL_INTEGER_PATTERN = re.compile(r"0|[1-9][0-9]*")
+
+
 def _canonical_integer(value: Any) -> int:
     if isinstance(value, str) and CANONICAL_INTEGER_PATTERN.fullmatch(value):
         return int(value)
@@ -44,23 +46,31 @@ class ScheduleOcrFormFields(BaseModel):
 class ScheduleOcrMultipartRequest:
     image: UploadFile
     fields: ScheduleOcrFormFields
+    form: FormData
+
+    async def close(self) -> None:
+        await self.form.close()
 
 
 async def parse_schedule_ocr_form(request: Request) -> ScheduleOcrMultipartRequest:
     form = await request.form()
-    items = form.multi_items()
-    keys = [key for key, _value in items]
-    if set(keys) != FORM_FIELDS or len(keys) != len(FORM_FIELDS):
-        raise invalid_request("multipart 필드가 계약과 일치하지 않습니다.")
-
-    values = dict(items)
-    image = values.pop("image")
-    if not isinstance(image, UploadFile):
-        raise invalid_request("image는 파일이어야 합니다.")
-    if any(not isinstance(value, str) for value in values.values()):
-        raise invalid_request("multipart 필드 형식이 올바르지 않습니다.")
     try:
-        fields = ScheduleOcrFormFields.model_validate(values)
-    except ValidationError as exc:
-        raise invalid_request("multipart 필드 형식이 올바르지 않습니다.") from exc
-    return ScheduleOcrMultipartRequest(image=image, fields=fields)
+        items = form.multi_items()
+        keys = [key for key, _value in items]
+        if set(keys) != FORM_FIELDS or len(keys) != len(FORM_FIELDS):
+            raise invalid_request("multipart 필드가 계약과 일치하지 않습니다.")
+
+        values = dict(items)
+        image = values.pop("image")
+        if not isinstance(image, UploadFile):
+            raise invalid_request("image는 파일이어야 합니다.")
+        if any(not isinstance(value, str) for value in values.values()):
+            raise invalid_request("multipart 필드 형식이 올바르지 않습니다.")
+        try:
+            fields = ScheduleOcrFormFields.model_validate(values)
+        except ValidationError as exc:
+            raise invalid_request("multipart 필드 형식이 올바르지 않습니다.") from exc
+        return ScheduleOcrMultipartRequest(image=image, fields=fields, form=form)
+    except Exception:
+        await form.close()
+        raise

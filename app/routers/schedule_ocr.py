@@ -119,17 +119,20 @@ async def recognize_schedule(
     multipart: ScheduleOcrMultipartRequest = Depends(parse_schedule_ocr_form),
     service: ScheduleOcrService = Depends(get_schedule_ocr_service),
 ) -> ScheduleOcrResponse:
-    image = multipart.image
-    fields = multipart.fields
-    image_bytes = await image.read(service.max_image_bytes + 1)
-    return service.recognize(
-        image_bytes=image_bytes,
-        content_type=image.content_type,
-        filename=image.filename,
-        year_month=fields.yearMonth,
-        template_id=fields.templateId,
-        row_index=fields.rowIndex,
-        expected_width=fields.expectedWidth,
-        expected_height=fields.expectedHeight,
-        expected_sha256=fields.expectedSha256,
-    )
+    try:
+        image = multipart.image
+        fields = multipart.fields
+        image_bytes = await image.read(service.max_image_bytes + 1)
+        return service.recognize(
+            image_bytes=image_bytes,
+            content_type=image.content_type,
+            filename=image.filename,
+            year_month=fields.yearMonth,
+            template_id=fields.templateId,
+            row_index=fields.rowIndex,
+            expected_width=fields.expectedWidth,
+            expected_height=fields.expectedHeight,
+            expected_sha256=fields.expectedSha256,
+        )
+    finally:
+        await multipart.close()

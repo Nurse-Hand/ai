@@ -1,6 +1,9 @@
 from pathlib import Path
 import hashlib
 from importlib.metadata import version
+import subprocess
+import tarfile
+from io import BytesIO
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -73,3 +76,39 @@ def test_ocr_api_runtime_versions_are_isolated_and_fixed() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "COPY requirements.txt requirements-ocr-api.txt requirements-ocr.txt ./" in dockerfile
     assert "pip install --no-cache-dir -r requirements-ocr-api.txt" in dockerfile
+
+
+def test_fresh_git_archive_preserves_pillow_license_bytes() -> None:
+    tree = subprocess.run(
+        ["git", "-c", f"safe.directory={ROOT.as_posix()}", "write-tree"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    completed = subprocess.run(
+        ["git", "-c", f"safe.directory={ROOT.as_posix()}", "archive", tree],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    )
+    with tarfile.open(fileobj=BytesIO(completed.stdout), mode="r:") as archive:
+        archived = archive.extractfile("licenses/Pillow-12.3.0-LICENSE.txt")
+        assert archived is not None
+        license_bytes = archived.read()
+    assert b"\r\n" not in license_bytes
+    assert hashlib.sha256(license_bytes).hexdigest() == (
+        "dda12a98c1979cf3d94df1cff45d27a4cb3f04a60c76f76902ac54cac03ec0ce"
+    )
+    attributes = subprocess.run(
+        [
+            "git", "-c", f"safe.directory={ROOT.as_posix()}", "check-attr", "--cached", "eol", "--",
+            "licenses/Pillow-12.3.0-LICENSE.txt", "ocr-components.lock", "Dockerfile",
+            "openapi/schedule-ocr.v1.json",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert all(line.endswith("eol: lf") for line in attributes.splitlines())

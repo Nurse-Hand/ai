@@ -9,6 +9,8 @@ import sys
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
+import pytest
+from starlette.datastructures import UploadFile
 
 from app.routers.schedule_ocr import get_schedule_ocr_service, router, schedule_ocr_error_handler
 from app.schedule_ocr.engine import OcrCandidate
@@ -27,6 +29,15 @@ class FakeEngine:
 class UnavailableEngine:
     def recognize(self, _cell: Image.Image) -> OcrCandidate:
         raise ScheduleOcrError("SCHEDULE_OCR_ENGINE_UNAVAILABLE", "OCR 엔진을 사용할 수 없습니다.", 503)
+
+
+class FailingEngine:
+    def __init__(self, code: str, status_code: int) -> None:
+        self.code = code
+        self.status_code = status_code
+
+    def recognize(self, _cell: Image.Image) -> OcrCandidate:
+        raise ScheduleOcrError(self.code, "OCR 엔진 처리 실패", self.status_code)
 
 
 def synthetic_png() -> bytes:
@@ -59,6 +70,25 @@ def unavailable_service() -> ScheduleOcrService:
         UnavailableEngine(), max_image_bytes=10 * 1024 * 1024, min_image_width=640,
         min_image_height=480, max_image_pixels=16_000_000, review_threshold=0.85,
     )
+
+
+def failing_service(code: str, status_code: int) -> ScheduleOcrService:
+    return ScheduleOcrService(
+        FailingEngine(code, status_code), max_image_bytes=10 * 1024 * 1024, min_image_width=640,
+        min_image_height=480, max_image_pixels=16_000_000, review_threshold=0.85,
+    )
+
+
+def padded_to_rolled_upload(image: bytes) -> bytes:
+    target_size = 2 * 1024 * 1024
+    assert len(image) < target_size
+    return image + b"\0" * (target_size - len(image))
+
+
+def unsupported_png() -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (1600, 1200), "white").save(output, "PNG")
+    return output.getvalue()
 
 
 def client() -> TestClient:
@@ -178,6 +208,50 @@ def test_engine_unavailable_has_stable_error_envelope() -> None:
     assert response.json() == {
         "error": {"code": "SCHEDULE_OCR_ENGINE_UNAVAILABLE", "message": "OCR 엔진을 사용할 수 없습니다."}
     }
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_status"),
+    [("success", 200), ("unsupported", 422), ("engine-error", 502), ("timeout", 504)],
+)
+def test_rolled_upload_is_closed_after_every_route_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: str,
+    expected_status: int,
+) -> None:
+    closed: list[tuple[bool, bool]] = []
+    original_close = UploadFile.close
+
+    async def tracking_close(upload: UploadFile) -> None:
+        rolled = bool(getattr(upload.file, "_rolled", False))
+        await original_close(upload)
+        closed.append((rolled, upload.file.closed))
+
+    monkeypatch.setattr(UploadFile, "close", tracking_close)
+    test_client = client()
+    if outcome == "engine-error":
+        test_client.app.dependency_overrides[get_schedule_ocr_service] = lambda: failing_service(
+            "SCHEDULE_OCR_ENGINE_FAILED", 502,
+        )
+    elif outcome == "timeout":
+        test_client.app.dependency_overrides[get_schedule_ocr_service] = lambda: failing_service(
+            "SCHEDULE_OCR_ENGINE_TIMEOUT", 504,
+        )
+
+    image = padded_to_rolled_upload(unsupported_png() if outcome == "unsupported" else synthetic_png())
+    response = test_client.post(
+        "/internal/v1/schedules/ocr",
+        headers={"X-Internal-Token": "test-token"},
+        files={"image": ("rolled.png", image, "image/png")},
+        data={
+            "yearMonth": "2026-02", "templateId": "NURSE_HAND_FIXED_V1", "rowIndex": "3",
+            "expectedWidth": "1600", "expectedHeight": "1200",
+            "expectedSha256": hashlib.sha256(image).hexdigest(),
+        },
+    )
+
+    assert response.status_code == expected_status
+    assert (True, True) in closed
 
 
 def test_openapi_declares_required_multipart_and_errors() -> None:

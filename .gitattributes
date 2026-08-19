@@ -1,0 +1,7 @@
+licenses/** text eol=lf
+ocr-components.lock text eol=lf
+Dockerfile text eol=lf
+openapi/*.json text eol=lf
+requirements-ocr*.txt text eol=lf
+THIRD_PARTY_NOTICES.md text eol=lf
+docs/schedule-ocr-runtime.md text eol=lf
