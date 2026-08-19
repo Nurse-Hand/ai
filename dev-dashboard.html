@@ -238,6 +238,15 @@
     <div class="result-panel" id="result-s-list"><span class="empty">목록을 아직 불러오지 않음</span></div>
   </div>
 
+  <!-- ⑥ 엣지 케이스 일괄 테스트 -->
+  <div class="card">
+    <div class="card-head"><span class="emoji">🧪</span><h2>⑥ 엣지 케이스 일괄 테스트</h2><span id="status-e" class="status pending">미확인</span></div>
+    <div class="port">prioritize / generate / precheck — 10개 시나리오 자동 실행</div>
+    <p class="desc">빈 문자열, 5만자 텍스트, 이모지·HTML·SQL유사 문자, 존재하지 않는 topic, 필수필드 누락, 잘못된 타입, 깨진 JSON 등을 한 번에 쏴서 서버가 안 죽고 적절히 응답하는지 확인합니다.</p>
+    <div class="btn-row"><button class="run" onclick="runEdgeCases()">▶ 10개 시나리오 전체 실행</button></div>
+    <div class="result-panel" id="result-e"><span class="empty">아직 실행 안 함</span></div>
+  </div>
+
 </main>
 
 <script>
@@ -448,6 +457,60 @@ async function deleteSpeaker(id) {
   if (!confirm(`${id} 삭제할까요?`)) return;
   await fetch(`${BASE}/api/speakers/${id}`, { method: 'DELETE' });
   listSpeakers();
+}
+
+// ── ⑥ 엣지 케이스 일괄 테스트 ──
+async function runEdgeCases() {
+  const resultEl = document.getElementById('result-e');
+  resultEl.innerHTML = `<span class="empty">실행 중...</span>`;
+  const now = new Date().toISOString();
+
+  const cases = [
+    { name: '빈 문자열 title', path: '/internal/v1/tasks/prioritize', auth: true, expect: r => r.status < 500,
+      body: { requestId: crypto.randomUUID(), tasks: [{ taskId: 't1', patientId: 'p1', title: '', carriedOver: false }], patientRisk: [], now } },
+    { name: '아주 긴 evidence 텍스트 (5만자)', path: '/internal/v1/handoffs/generate', auth: true, expect: r => r.status < 500,
+      body: { requestId: crypto.randomUUID(), patientId: 'p1', roundingSessionId: 'r1', evidences: [{ evidenceId: 'ev1', topic: 'VITAL_SIGNS', text: '산소포화도 재측정 필요. '.repeat(3000) }] } },
+    { name: '이모지 · HTML · SQL 유사 문자', path: '/internal/v1/handoffs/generate', auth: true, expect: r => r.status < 500,
+      body: { requestId: crypto.randomUUID(), patientId: 'p1', roundingSessionId: 'r1', evidences: [{ evidenceId: 'ev1', topic: 'OBSERVATION', text: "😷🏥 <script>alert('x')</script> '; DROP TABLE tasks; -- \n\t한글中文🎉" }] } },
+    { name: '존재하지 않는 topic 값', path: '/internal/v1/handoffs/generate', auth: true, expect: r => r.status < 500,
+      body: { requestId: crypto.randomUUID(), patientId: 'p1', roundingSessionId: 'r1', evidences: [{ evidenceId: 'ev1', topic: 'NOT_A_REAL_TOPIC', text: '테스트' }] } },
+    { name: 'requestId 누락 (422 기대)', path: '/internal/v1/tasks/prioritize', auth: true, expect: r => r.status === 422,
+      body: { tasks: [], patientRisk: [], now } },
+    { name: 'carriedOver에 문자열 "yes"', path: '/internal/v1/tasks/prioritize', auth: true, expect: r => r.status < 500,
+      body: { requestId: crypto.randomUUID(), tasks: [{ taskId: 't1', patientId: 'p1', title: 'x', carriedOver: 'yes' }], patientRisk: [], now } },
+    { name: 'dueAt null 명시', path: '/internal/v1/tasks/prioritize', auth: true, expect: r => r.status < 500,
+      body: { requestId: crypto.randomUUID(), tasks: [{ taskId: 't1', patientId: 'p1', title: 'x', dueAt: null, carriedOver: false }], patientRisk: [], now } },
+    { name: 'precheck 전부 빈 배열', path: '/internal/v1/handoffs/precheck', auth: true, expect: r => r.status < 500,
+      body: { requestId: crypto.randomUUID(), draftId: 'd1', patientId: 'p1', draftItems: [], candidateEvidence: [], openTasks: [] } },
+    { name: 'evidence 100개', path: '/internal/v1/handoffs/generate', auth: true, expect: r => r.status < 500,
+      body: { requestId: crypto.randomUUID(), patientId: 'p1', roundingSessionId: 'r1', evidences: Array.from({length:100}, (_,i)=>({evidenceId:`ev${i}`, topic:'OBSERVATION', text:`관찰 ${i}`})) } },
+  ];
+
+  const rows = [];
+  for (const c of cases) {
+    try {
+      const r = await fetch(`${BASE}${c.path}`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(c.body) });
+      const ok = c.expect(r);
+      rows.push({ name: c.name, status: r.status, ok });
+    } catch (e) {
+      rows.push({ name: c.name, status: 'EXC', ok: false, err: e.message });
+    }
+  }
+  // 깨진 JSON (raw)
+  try {
+    const r = await fetch(`${BASE}/internal/v1/tasks/prioritize`, { method: 'POST', headers: authHeaders(), body: '{invalid json' });
+    rows.push({ name: '깨진 JSON (422 기대)', status: r.status, ok: r.status === 422 });
+  } catch (e) { rows.push({ name: '깨진 JSON', status: 'EXC', ok: false, err: e.message }); }
+  // 인증 없이 요청 (401 기대)
+  try {
+    const r = await fetch(`${BASE}/internal/v1/tasks/prioritize`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId: 'x', tasks: [], patientRisk: [], now }) });
+    rows.push({ name: '인증 토큰 없이 요청 (401 기대)', status: r.status, ok: r.status === 401 });
+  } catch (e) { rows.push({ name: '인증 토큰 없이 요청', status: 'EXC', ok: false, err: e.message }); }
+
+  const passCount = rows.filter(r => r.ok).length;
+  setStatus('e', passCount === rows.length);
+  resultEl.innerHTML = `<div class="result-item">${passCount} / ${rows.length} 통과</div>` +
+    rows.map(r => `<div class="result-item">${r.ok ? '✅' : '❌'} ${r.name} <span style="color:var(--muted);float:right;font-family:monospace;">${r.status}${r.err ? ' · ' + r.err : ''}</span></div>`).join('');
 }
 
 window.onload = () => { checkHealth(); refreshPreviews(); listSpeakers(); };
