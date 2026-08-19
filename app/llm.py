@@ -1,6 +1,14 @@
 from typing import TypeVar
 
-from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    ContentFilterFinishReasonError,
+    LengthFinishReasonError,
+    OpenAI,
+    RateLimitError,
+)
 from pydantic import BaseModel, ValidationError
 
 from app.config import get_settings
@@ -44,5 +52,7 @@ def call_structured(
     except APIStatusError as error:
         code = InferenceFailureCode.UNAVAILABLE if error.status_code >= 500 else InferenceFailureCode.INVALID_RESPONSE
         raise InferenceFailure(code) from error
+    except (LengthFinishReasonError, ContentFilterFinishReasonError) as error:
+        raise InferenceFailure(InferenceFailureCode.INVALID_RESPONSE) from error
     except (ValidationError, ValueError, IndexError, AttributeError) as error:
         raise InferenceFailure(InferenceFailureCode.INVALID_RESPONSE) from error

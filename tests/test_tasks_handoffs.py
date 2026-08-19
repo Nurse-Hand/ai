@@ -3,11 +3,14 @@ import uuid
 
 from fastapi.testclient import TestClient
 
+from app.config import get_settings
+
 from main import app
 
 
 def _client(monkeypatch) -> TestClient:
-    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-token")
+    monkeypatch.setenv("INTERNAL_TOKEN", "test-token")
+    get_settings.cache_clear()
     return TestClient(app)
 
 
@@ -31,11 +34,11 @@ def test_prioritize_tasks_echoes_request_id(monkeypatch):
     }
     response = client.post(
         "/internal/v1/tasks/prioritize",
-        headers={"X-Internal-Token": os.environ["INTERNAL_API_TOKEN"]},
+        headers={"X-Internal-Token": os.environ["INTERNAL_TOKEN"]},
         json=body,
     )
-    assert response.status_code == 201
-    assert response.json()["requestId"] == request_id
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "AI_UPSTREAM_UNAVAILABLE"
 
 
 def test_precheck_handles_no_candidates(monkeypatch):
@@ -51,7 +54,7 @@ def test_precheck_handles_no_candidates(monkeypatch):
     }
     response = client.post(
         "/internal/v1/handoffs/precheck",
-        headers={"X-Internal-Token": os.environ["INTERNAL_API_TOKEN"]},
+        headers={"X-Internal-Token": os.environ["INTERNAL_TOKEN"]},
         json=body,
     )
     assert response.status_code == 201
@@ -80,13 +83,11 @@ def test_precheck_flags_missing_evidence_topic(monkeypatch):
     }
     response = client.post(
         "/internal/v1/handoffs/precheck",
-        headers={"X-Internal-Token": os.environ["INTERNAL_API_TOKEN"]},
+        headers={"X-Internal-Token": os.environ["INTERNAL_TOKEN"]},
         json=body,
     )
-    assert response.status_code == 201
-    items = response.json()["verificationItems"]
-    assert len(items) == 1
-    assert items[0]["type"] == "MISSING_HANDOFF_ITEM"
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "AI_UPSTREAM_UNAVAILABLE"
 
 
 def test_generate_handles_no_evidence(monkeypatch):
@@ -95,7 +96,7 @@ def test_generate_handles_no_evidence(monkeypatch):
     body = {"requestId": request_id, "patientId": "p1", "roundingSessionId": "round-1", "evidences": []}
     response = client.post(
         "/internal/v1/handoffs/generate",
-        headers={"X-Internal-Token": os.environ["INTERNAL_API_TOKEN"]},
+        headers={"X-Internal-Token": os.environ["INTERNAL_TOKEN"]},
         json=body,
     )
     assert response.status_code == 201

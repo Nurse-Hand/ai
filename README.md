@@ -35,9 +35,9 @@ pyannote.audio 4.x가 요구하는 `torch`/`torchaudio` 조합(`torch==2.11.0`, 
 
 | 변수 | 설명 |
 |---|---|
-| `OPENAI_API_KEY` | 업무/인수인계 AI 판단용. 없으면 해당 엔드포인트가 stub(가짜 응답)을 반환한다 — 500 에러가 아니라 조용히 가짜 데이터가 나가니 배포 전 꼭 확인할 것 |
+| `OPENAI_API_KEY` | 업무/인수인계 AI 판단용. 없으면 가짜 정상 응답을 반환하지 않고 `AI_UPSTREAM_UNAVAILABLE`로 실패한다 |
 | `OPENAI_MODEL` | 기본 `gpt-4o-mini` |
-| `INTERNAL_API_TOKEN` | 백엔드 → 이 서버 호출 인증 토큰 (`X-Internal-Token` 헤더 값과 대조) |
+| `INTERNAL_TOKEN` | 백엔드 → 이 서버 호출 인증 토큰 (`X-Internal-Token` 헤더 값과 대조) |
 | `DEEPGRAM_API_KEY` | STT. 없으면 로컬 STT(`LOCAL_STT_MODEL_DIR`, sherpa-onnx) 또는 빈 transcript로 fallback |
 | `DEEPGRAM_MODEL`, `DEEPGRAM_LANGUAGE` | 기본 `nova-3`, `ko-KR` |
 | `PYANNOTE_AUTH_TOKEN` | HuggingFace 토큰. `pyannote/speaker-diarization-community-1` 모델 라이선스 동의 필요 |
@@ -100,11 +100,11 @@ pyannote.audio 4.x가 요구하는 `torch`/`torchaudio` 조합(`torch==2.11.0`, 
 ## 테스트
 
 ```bash
-pytest                          # 스키마/인증/기본 흐름 (실제 LLM 호출 없이, stub 경로)
+pytest                          # 스키마/인증/기본 흐름 (실제 LLM 호출 없이 test fake 사용)
 python e2e_test.py              # 서버를 띄운 채로 실행 - 실제 OpenAI 호출로 3개 엔드포인트 전체 흐름 확인
 ```
 
-`e2e_test.py`는 `uvicorn main:app --port 8000`이 떠 있어야 하고, `.env`의 `INTERNAL_API_TOKEN`을 그대로 사용한다.
+`e2e_test.py`는 `uvicorn main:app --port 8000`이 떠 있어야 하고, `.env`의 `INTERNAL_TOKEN`을 그대로 사용한다.
 
 ## 아키텍처 결정 배경 (헷갈리기 쉬운 것들)
 
@@ -146,6 +146,6 @@ app/
     speaker_store.py              # 화자 DB (JSON 파일)
     audio.py                       # 업로드/정규화/오디오 유틸
     analysis.py                     # 분석 결과 조합
-tests/                      # pytest (stub 경로 검증)
+tests/                      # pytest (test fake 경로 검증)
 e2e_test.py                # 수동 통합 테스트 (실제 LLM 호출)
 ```

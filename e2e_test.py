@@ -7,7 +7,7 @@
      "인수인계 역검증" 노션 페이지 기준으로 재설계됨 - candidateSections 대조 방식 아님
 
 실행 전: `uvicorn main:app --port 8000`으로 서버 띄워두고,
-INTERNAL_API_TOKEN 환경변수를 .env와 동일하게 맞춰서 실행.
+INTERNAL_TOKEN 환경변수를 .env와 동일하게 맞춰서 실행.
 `requests`는 앱 자체엔 필요 없어서 requirements.txt에서 뺐음 - 이 스크립트만 쓰려면 별도 설치 필요.
 """
 
@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE = "http://localhost:8000"
-TOKEN = os.environ["INTERNAL_API_TOKEN"]  # .env에서 로드 - 하드코딩 금지
+TOKEN = os.environ["INTERNAL_TOKEN"]  # .env에서 로드 - 하드코딩 금지
 HEADERS = {"X-Internal-Token": TOKEN, "Content-Type": "application/json"}
 
 
