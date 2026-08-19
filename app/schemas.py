@@ -159,12 +159,15 @@ class DraftItemRef(CamelModel):
     summary: str
 
 
-class CandidateEvidence(CamelModel):
-    """역검증용 근거. generate의 DraftEvidence보다 풍부함 (structuredFacts/importanceFlags 포함) -
-    노션 '저장 로직' 페이지의 evidence 저장 구조와 짝을 이룸."""
+class Evidence(CamelModel):
+    """노션 '저장 로직'/'LLM 최종 제공 템플릿' 페이지 기준 evidence 단위.
+    generate의 evidences와 precheck의 candidateEvidence 둘 다 이 스키마를 쓴다 - 같은
+    저장 개체(evidence)를 두 플로우가 다르게 부르는 것뿐이라 예전에 따로 만든
+    DraftEvidence(얕은 버전)와 CandidateEvidence(깊은 버전)를 통합함 (2026-08-19)."""
     evidence_id: str
     topic: str
-    handoff_section: str
+    handoff_section: str = ""
+    text: str = ""  # 원문 인용용 - generate가 evidenceRefs.displayQuote로 그대로 인용
     structured_facts: dict[str, str] = {}
     importance_flags: list[str] = []
     requires_nurse_confirmation: bool = False
@@ -195,7 +198,7 @@ class VerifyDraftRequest(CamelModel):
     draft_id: str
     patient_id: str
     draft_items: list[DraftItemRef] = []
-    candidate_evidence: list[CandidateEvidence] = []
+    candidate_evidence: list[Evidence] = []
     open_tasks: list[OpenTask] = []
 
 
@@ -233,21 +236,16 @@ HANDOFF_SECTIONS: dict[str, str] = {
 }
 
 
-class DraftEvidence(CamelModel):
-    """노션 '파트별 사항-AI > LLM 최종 제공 템플릿' 기준 generate 입력 근거 단위.
-    evidenceRefs(응답)의 evidenceId/displayQuote와 짝을 이룸."""
-    evidence_id: str
-    topic: str  # HANDOFF_SECTIONS 키 중 하나
-    text: str
-
-
 class GenerateHandoffRequest(CamelModel):
-    """2026-08-19: 공식 API 명세 DB의 SBAR/patients배치 구조 대신, 노션 '파트별 사항-AI'
-    3개 페이지(AI 음성 분석 기능/VAD와 화자 분리/LLM 최종 제공 템플릿) 기준으로 재설계."""
+    """2026-08-19: 공식 API 명세 DB의 SBAR/patients배치 구조 대신, 노션 "LLM 최종 제공 템플릿"
+    1번 섹션(인수인계 최종 템플릿) 기준으로 재설계. 그 페이지의 "LLM이 받는 입력"에
+    evidence(topic/handoffSection/structuredFacts/importanceFlags)와 "필요 시 환자 관련
+    open task"가 명시돼 있어서 evidences를 Evidence로, openTasks를 추가함 (같은 날 재확인)."""
     request_id: str
     patient_id: str
     rounding_session_id: str
-    evidences: list[DraftEvidence] = []
+    evidences: list[Evidence] = []
+    open_tasks: list[Task] = []
 
 
 class EvidenceRef(CamelModel):

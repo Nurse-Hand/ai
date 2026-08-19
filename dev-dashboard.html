@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Nurse Hand AI Server · 로컬 대시보드</title>
+<style>
+  :root {
+    --purple: #7c3aed;
+    --purple-dark: #5b21b6;
+    --purple-bg: #f5f3ff;
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e5e7eb;
+    --text: #18181b;
+    --muted: #71717a;
+    --ok: #16a34a;
+    --ok-bg: #dcfce7;
+    --fail: #dc2626;
+    --fail-bg: #fee2e2;
+    --pending-bg: #f4f4f5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif;
+    background: var(--bg); color: var(--text); margin: 0; padding: 0 0 60px;
+  }
+  header {
+    background: linear-gradient(135deg, var(--purple) 0%, var(--purple-dark) 100%);
+    color: white; padding: 28px 24px; margin-bottom: 24px;
+  }
+  header h1 { margin: 0 0 4px; font-size: 22px; }
+  header p { margin: 0; opacity: 0.85; font-size: 13px; }
+  main { max-width: 900px; margin: 0 auto; padding: 0 20px; }
+
+  .flow-note {
+    background: var(--purple-bg); border: 1px solid #ddd6fe; border-radius: 12px;
+    padding: 12px 16px; margin-bottom: 20px; font-size: 13px; color: var(--purple-dark);
+  }
+
+  .token-box {
+    background: var(--purple-bg); border: 1px solid #ddd6fe; border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .token-box label { font-size: 13px; font-weight: 600; color: var(--purple-dark); white-space: nowrap; }
+  .token-box small { color: var(--muted); display: block; width: 100%; margin-top: -4px; }
+  .token-box input { flex: 1; min-width: 220px; padding: 7px 10px; border: 1px solid #ddd6fe; border-radius: 8px; font-family: monospace; font-size: 12px; }
+  .token-box button { background: white; border: 1px solid #ddd6fe; padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 12px; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px 20px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+  .card-head .emoji { font-size: 20px; }
+  .card-head h2 { margin: 0; font-size: 15px; }
+  .card .port { color: var(--muted); font-size: 11px; font-family: monospace; margin: 2px 0 12px; }
+  .card .desc { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; line-height: 1.5; }
+
+  .status { padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .status.ok { background: var(--ok-bg); color: var(--ok); }
+  .status.fail { background: var(--fail-bg); color: var(--fail); }
+  .status.pending { background: var(--pending-bg); color: var(--muted); }
+
+  .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field label { font-size: 11.5px; font-weight: 600; color: #3f3f46; }
+  .field .hint { font-size: 10.5px; color: var(--muted); margin-top: -1px; }
+  .field input, .field select, .field textarea {
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; font-size: 12.5px;
+    font-family: -apple-system, sans-serif; background: #fcfcfd;
+  }
+  .field input[type=checkbox] { width: 16px; height: 16px; align-self: flex-start; }
+  .field.checkbox { flex-direction: row; align-items: center; gap: 6px; }
+  .field.wide { grid-column: 1 / -1; }
+  textarea.raw-text { width: 100%; font-family: monospace; font-size: 11.5px; height: 55px; }
+
+  .btn-row { display: flex; gap: 8px; align-items: center; margin: 10px 0 14px; flex-wrap: wrap; }
+  button.run {
+    background: var(--purple); color: white; border: none; padding: 8px 16px;
+    border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  button.run:hover { background: var(--purple-dark); }
+  button.ghost {
+    background: white; border: 1px solid var(--border); padding: 8px 14px;
+    border-radius: 8px; font-size: 13px; cursor: pointer; color: var(--muted);
+  }
+  details.payload-preview { margin: 6px 0 14px; }
+  details.payload-preview summary { cursor: pointer; font-size: 12px; color: var(--purple-dark); font-weight: 600; }
+  pre.json-preview { background: #1e1b2e; color: #d4d0f5; padding: 10px; border-radius: 8px; font-size: 11px; overflow-x: auto; margin-top: 8px; }
+
+  .result-panel { border-top: 1px dashed var(--border); padding-top: 12px; margin-top: 4px; }
+  .result-panel .empty { color: var(--muted); font-size: 12px; font-style: italic; }
+  .result-cards { display: flex; flex-direction: column; gap: 8px; }
+  .result-item { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; background: #fcfcfd; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; margin-right: 6px; }
+  .badge.critical, .badge.high { background: #fee2e2; color: #b91c1c; }
+  .badge.recommended, .badge.low, .badge.medium { background: #fef3c7; color: #92400e; }
+  .segment-row { display: flex; gap: 10px; font-family: monospace; font-size: 12px; padding: 4px 0; border-bottom: 1px solid #f0f0f0; }
+  .segment-row .time { color: var(--muted); width: 130px; flex-shrink: 0; }
+  .segment-row .speaker { color: var(--purple-dark); font-weight: 700; }
+  details.raw-response summary { cursor: pointer; font-size: 11px; color: var(--muted); margin-top: 8px; }
+  pre.raw-json { background: #f4f4f5; padding: 8px; border-radius: 6px; font-size: 10.5px; overflow-x: auto; }
+  input[type=file] { font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🩺 Nurse Hand AI Server · 로컬 대시보드</h1>
+  <p>ai-server/ 하나에 다 붙어있는 엔드포인트를 순서대로 테스트합니다.</p>
+</header>
+
+<main>
+
+  <div class="flow-note">
+    <b>순서 주의</b>: ③(역검증)은 ②(초안 생성)가 먼저 실행된 다음에 의미가 있습니다. ② 실행하면 그 결과가 ③의 "생성된 초안 요약"에 자동으로 채워집니다.
+  </div>
+
+  <div class="token-box">
+    <label>🔑 인증 토큰</label>
+    <input id="token" type="password" placeholder=".env의 INTERNAL_API_TOKEN 값을 붙여넣으세요" />
+    <button onclick="const t=document.getElementById('token'); t.type = t.type==='password'?'text':'password'">보이기</button>
+    <small>①②③(음성분석 제외)은 이 토큰이 있어야 응답합니다. 없으면 401 에러가 정상입니다.</small>
+  </div>
+
+  <!-- health -->
+  <div class="card">
+    <div class="card-head"><span class="emoji">💓</span><h2>서버 상태</h2><span id="status-health" class="status pending">미확인</span></div>
+    <div class="port">GET http://127.0.0.1:8000/health</div>
+    <div class="btn-row"><button class="ghost" onclick="checkHealth()">확인</button></div>
+    <div class="result-panel" id="result-health"><span class="empty">아직 확인 안 함</span></div>
+  </div>
+
+  <!-- ① 업무 우선순위 -->
+  <div class="card">
+    <div class="card-head"><span class="emoji">📋</span><h2>① 업무 우선순위 산정</h2><span id="status-p" class="status pending">미확인</span></div>
+    <div class="port">POST /internal/v1/tasks/prioritize</div>
+    <p class="desc">간호사가 직접 입력한 업무 목록을 받아서 <b>환자 위험도·시간제약·이월 여부</b> 등을 기준으로 우선순위를 매깁니다.</p>
+    <div class="field-grid">
+      <div class="field"><label>업무 ID</label><input id="p-taskId" value="t1" /></div>
+      <div class="field"><label>환자 ID</label><input id="p-patientId" value="301" /></div>
+      <div class="field wide"><label>업무 제목</label><input id="p-title" value="산소포화도 재측정" /></div>
+      <div class="field checkbox"><input type="checkbox" id="p-carriedOver" checked /><label>이월 업무</label></div>
+      <div class="field"><label>환자 위험도</label>
+        <select id="p-risk"><option value="HIGH" selected>HIGH</option><option value="MEDIUM">MEDIUM</option><option value="LOW">LOW</option></select>
+      </div>
+    </div>
+    <details class="payload-preview"><summary>보낼 JSON 미리보기</summary><pre class="json-preview" id="preview-p"></pre></details>
+    <div class="btn-row"><button class="run" onclick="callPrioritize()">▶ 테스트</button></div>
+    <div class="result-panel" id="result-p"><span class="empty">아직 테스트 안 함</span></div>
+  </div>
+
+  <!-- ② 인수인계 초안 생성 -->
+  <div class="card">
+    <div class="card-head"><span class="emoji">📝</span><h2>② 인수인계 초안 생성 (generate)</h2><span id="status-g" class="status pending">미확인</span></div>
+    <div class="port">POST /internal/v1/handoffs/generate</div>
+    <p class="desc">근거(evidence) 목록을 <b>7개 섹션</b>(활력징후/호흡/의식상태/통증/처치/식이/관찰사항)으로 묶어 인수인계 초안을 만듭니다.</p>
+    <div class="field-grid">
+      <div class="field"><label>환자 ID</label><input id="g-patientId" value="301" /></div>
+      <div class="field"><label>라운딩 세션 ID</label><input id="g-sessionId" value="round-dashboard-test" /></div>
+      <div class="field"><label>근거 topic</label>
+        <select id="g-topic">
+          <option value="VITAL_SIGNS" selected>VITAL_SIGNS (활력징후)</option>
+          <option value="RESPIRATION">RESPIRATION (호흡)</option>
+          <option value="MENTAL_STATUS">MENTAL_STATUS (의식상태)</option>
+          <option value="PAIN">PAIN (통증)</option>
+          <option value="TREATMENT">TREATMENT (처치)</option>
+          <option value="DIET">DIET (식이)</option>
+          <option value="OBSERVATION">OBSERVATION (관찰사항·특이사항)</option>
+        </select>
+      </div>
+      <div class="field wide"><label>근거 원문(evidence text)</label>
+        <textarea class="raw-text" id="g-rawText">301호 김OO 환자분, 산소포화도 94%에서 97%로 개선, 비강캐뉼라 산소 2L 유지</textarea>
+      </div>
+    </div>
+    <details class="payload-preview"><summary>보낼 JSON 미리보기</summary><pre class="json-preview" id="preview-g"></pre></details>
+    <div class="btn-row"><button class="run" onclick="callGenerate()">▶ 테스트</button></div>
+    <div class="result-panel" id="result-g"><span class="empty">아직 테스트 안 함</span></div>
+  </div>
+
+  <!-- ③ 인수인계 역검증 -->
+  <div class="card">
+    <div class="card-head"><span class="emoji">🔍</span><h2>③ 인수인계 역검증 (precheck)</h2><span id="status-v" class="status pending">미확인</span></div>
+    <div class="port">POST /internal/v1/handoffs/precheck</div>
+    <p class="desc"><b>이미 생성된 초안</b>(②의 결과)을, 추가 근거·업무와 다시 대조해서 누락·충돌·확인필요 카드를 만듭니다. ②를 먼저 실행하세요.</p>
+    <div class="field-grid">
+      <div class="field wide"><label>생성된 초안 요약 (② 실행하면 자동 채워짐)</label>
+        <textarea class="raw-text" id="v-draftItems" placeholder='[{"topic":"VITAL_SIGNS","summary":"..."}]'>[]</textarea>
+      </div>
+      <div class="field"><label>추가 근거 topic (초안에 없을 것)</label>
+        <select id="v-topic">
+          <option value="RESPIRATION" selected>RESPIRATION (호흡)</option>
+          <option value="VITAL_SIGNS">VITAL_SIGNS (활력징후)</option>
+          <option value="MENTAL_STATUS">MENTAL_STATUS (의식상태)</option>
+          <option value="PAIN">PAIN (통증)</option>
+          <option value="TREATMENT">TREATMENT (처치)</option>
+          <option value="DIET">DIET (식이)</option>
+          <option value="OBSERVATION">OBSERVATION (관찰사항·특이사항)</option>
+        </select>
+      </div>
+      <div class="field wide"><label>추가 근거 내용 (structuredFacts.symptom)</label><input id="v-symptom" value="기침" /></div>
+      <div class="field wide"><label>미완료 업무 제목 (환자 업무, scopeType=PATIENT)</label><input id="v-taskTitle" value="산소포화도 재측정" /></div>
+    </div>
+    <details class="payload-preview"><summary>보낼 JSON 미리보기</summary><pre class="json-preview" id="preview-v"></pre></details>
+    <div class="btn-row"><button class="run" onclick="callPrecheck()">▶ 테스트</button></div>
+    <div class="result-panel" id="result-v"><span class="empty">아직 테스트 안 함</span></div>
+  </div>
+
+  <!-- ④ 화자분리 -->
+  <div class="card">
+    <div class="card-head"><span class="emoji">🎙️</span><h2>④ 음성 분석 (STT + 화자분리)</h2><span id="status-d" class="status pending">미확인</span></div>
+    <div class="port">POST /api/diarization/analyze</div>
+    <p class="desc">오디오 파일을 올리면 Deepgram 전사 + pyannote 화자 분리를 같이 합니다. 인증 토큰 필요 없음.</p>
+    <div class="field-grid">
+      <div class="field wide"><label>오디오 파일</label><input type="file" id="audio-file" accept="audio/*" /></div>
+      <div class="field"><label>후보 화자 수 (topK)</label><input id="d-topk" value="3" style="width:60px" /></div>
+    </div>
+    <div class="btn-row"><button class="run" onclick="callDiarization()">▶ 이 파일로 테스트</button></div>
+    <div class="result-panel" id="result-d"><span class="empty">아직 테스트 안 함</span></div>
+  </div>
+
+</main>
+
+<script>
+const BASE = 'http://127.0.0.1:8000';
+const token = () => document.getElementById('token').value;
+const authHeaders = () => ({ 'X-Internal-Token': token(), 'Content-Type': 'application/json' });
+let lastDraftItems = [];
+
+function setStatus(id, ok) {
+  const el = document.getElementById('status-' + id);
+  el.className = 'status ' + (ok ? 'ok' : 'fail');
+  el.textContent = ok ? '정상' : '실패';
+}
+function rawDetails(obj) {
+  return `<details class="raw-response"><summary>원본 응답(JSON) 보기</summary><pre class="raw-json">${escapeHtml(JSON.stringify(obj, null, 2))}</pre></details>`;
+}
+function escapeHtml(s) { return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+async function checkHealth() {
+  try {
+    const r = await fetch(`${BASE}/health`);
+    const j = await r.json();
+    document.getElementById('result-health').innerHTML = `<div class="result-item">✅ ${JSON.stringify(j)}</div>`;
+    setStatus('health', r.ok);
+  } catch (e) {
+    document.getElementById('result-health').innerHTML = `<div class="result-item">❌ 연결 실패: ${e.message}<br/><small>uvicorn main:app --port 8000 이 떠 있는지 확인하세요.</small></div>`;
+    setStatus('health', false);
+  }
+}
+
+// ── ① prioritize ──
+function buildPrioritizePayload() {
+  return {
+    requestId: 'dashboard-test-1',
+    tasks: [{
+      taskId: document.getElementById('p-taskId').value,
+      patientId: document.getElementById('p-patientId').value,
+      title: document.getElementById('p-title').value,
+      carriedOver: document.getElementById('p-carriedOver').checked,
+    }],
+    patientRisk: [{ patientId: document.getElementById('p-patientId').value, level: document.getElementById('p-risk').value }],
+    now: new Date().toISOString(),
+  };
+}
+async function callPrioritize() {
+  const body = buildPrioritizePayload();
+  try {
+    const r = await fetch(`${BASE}/internal/v1/tasks/prioritize`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) });
+    const j = await r.json();
+    setStatus('p', r.ok);
+    if (!r.ok) { document.getElementById('result-p').innerHTML = `<div class="result-item">HTTP ${r.status} — ${JSON.stringify(j)}</div>`; return; }
+    const items = (j.results || []).map(t => `
+      <div class="result-item"><span class="badge ${t.priority.toLowerCase()}">${t.priority}</span> 업무 <b>${t.taskId}</b> · 점수 ${t.score}
+      <div style="color:#666;margin-top:4px;">${(t.reasons||[]).join(' / ')}</div></div>`).join('');
+    document.getElementById('result-p').innerHTML = `<div class="result-cards">${items || '<span class="empty">결과 없음</span>'}</div>` + rawDetails(j);
+  } catch (e) { document.getElementById('result-p').innerHTML = `<div class="result-item">❌ ${e.message}</div>`; setStatus('p', false); }
+}
+
+// ── ② generate ──
+function buildGeneratePayload() {
+  return {
+    requestId: 'dashboard-test-2',
+    patientId: document.getElementById('g-patientId').value,
+    roundingSessionId: document.getElementById('g-sessionId').value,
+    evidences: [{ evidenceId: 'ev-dashboard-1', topic: document.getElementById('g-topic').value, text: document.getElementById('g-rawText').value }],
+  };
+}
+async function callGenerate() {
+  const body = buildGeneratePayload();
+  try {
+    const r = await fetch(`${BASE}/internal/v1/handoffs/generate`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) });
+    const j = await r.json();
+    setStatus('g', r.ok);
+    if (!r.ok) { document.getElementById('result-g').innerHTML = `<div class="result-item">HTTP ${r.status} — ${JSON.stringify(j)}</div>`; return; }
+    lastDraftItems = (j.items || []).map(it => ({ topic: it.topic, summary: it.summary }));
+    document.getElementById('v-draftItems').value = JSON.stringify(lastDraftItems, null, 2);
+    refreshPreviews();
+    const items = (j.items || []).map(it => `
+      <div class="result-item">
+        <b>[${it.topic}] ${it.title}</b> ${it.requiresNurseConfirmation ? '<span class="badge critical">확인 필요</span>' : ''}
+        <div style="margin-top:4px;">${it.summary}</div>
+        <div style="color:#666;margin-top:4px;font-size:11px;">confidence: ${it.confidence} · 근거: ${(it.evidenceRefs||[]).map(r=>`"${r.displayQuote}"`).join(', ')}</div>
+      </div>`).join('');
+    document.getElementById('result-g').innerHTML = `<div class="result-cards">${items || '<span class="empty">항목 없음</span>'}</div>` + rawDetails(j)
+      + `<div style="margin-top:8px;color:#7c3aed;font-size:11px;">↓ 이 초안이 ③번 카드에 자동으로 채워졌습니다</div>`;
+  } catch (e) { document.getElementById('result-g').innerHTML = `<div class="result-item">❌ ${e.message}</div>`; setStatus('g', false); }
+}
+
+// ── ③ precheck (역검증) ──
+function buildPrecheckPayload() {
+  let draftItems = [];
+  try { draftItems = JSON.parse(document.getElementById('v-draftItems').value || '[]'); } catch (e) {}
+  return {
+    requestId: 'dashboard-test-3',
+    draftId: 'draft-dashboard-test',
+    patientId: document.getElementById('g-patientId').value,
+    draftItems,
+    candidateEvidence: [{
+      evidenceId: 'ev-dashboard-2',
+      topic: document.getElementById('v-topic').value,
+      handoffSection: document.getElementById('v-topic').selectedOptions[0].text,
+      structuredFacts: { symptom: document.getElementById('v-symptom').value },
+      importanceFlags: ['follow_up_needed'],
+      requiresNurseConfirmation: false,
+    }],
+    openTasks: [{
+      taskId: 't-dashboard-1',
+      title: document.getElementById('v-taskTitle').value,
+      scopeType: 'PATIENT',
+      status: 'TODO',
+      patientId: document.getElementById('g-patientId').value,
+      priorityMeta: { patientStatusUrgency: 'high', isCarryOver: true },
+    }],
+  };
+}
+async function callPrecheck() {
+  const body = buildPrecheckPayload();
+  try {
+    const r = await fetch(`${BASE}/internal/v1/handoffs/precheck`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) });
+    const j = await r.json();
+    setStatus('v', r.ok);
+    if (!r.ok) { document.getElementById('result-v').innerHTML = `<div class="result-item">HTTP ${r.status} — ${JSON.stringify(j)}</div>`; return; }
+    const items = (j.verificationItems || []).map(it => `
+      <div class="result-item">
+        <span class="badge ${it.severity.toLowerCase()}">${it.severity}</span><b>${it.type}</b> — ${it.title}
+        <div style="margin-top:4px;">${it.reason}</div>
+        <div style="margin-top:4px;"><b>❓ ${it.suggestedQuestion}</b></div>
+        <div style="color:#666;margin-top:4px;">제안 문장: ${it.suggestedDraftText}</div>
+      </div>`).join('');
+    document.getElementById('result-v').innerHTML = `<div class="result-cards">${items || '<span class="empty">역검증 카드 없음 (초안이 완전하다고 판단됨)</span>'}</div>` + rawDetails(j);
+  } catch (e) { document.getElementById('result-v').innerHTML = `<div class="result-item">❌ ${e.message}</div>`; setStatus('v', false); }
+}
+
+// live preview
+function refreshPreviews() {
+  try { document.getElementById('preview-p').textContent = JSON.stringify(buildPrioritizePayload(), null, 2); } catch(e) {}
+  try { document.getElementById('preview-g').textContent = JSON.stringify(buildGeneratePayload(), null, 2); } catch(e) {}
+  try { document.getElementById('preview-v').textContent = JSON.stringify(buildPrecheckPayload(), null, 2); } catch(e) {}
+}
+document.addEventListener('input', refreshPreviews);
+
+// ── ④ diarization ──
+async function callDiarization() {
+  const fileInput = document.getElementById('audio-file');
+  if (!fileInput.files.length) { alert('오디오 파일을 먼저 선택하세요'); return; }
+  const form = new FormData();
+  form.append('audio', fileInput.files[0]);
+  form.append('topK', document.getElementById('d-topk').value || '3');
+  document.getElementById('result-d').innerHTML = `<span class="empty">분석 중... (모델 로드 때문에 몇 초 걸릴 수 있음)</span>`;
+  try {
+    const r = await fetch(`${BASE}/api/diarization/analyze`, { method: 'POST', body: form });
+    const j = await r.json();
+    setStatus('d', r.ok);
+    if (!r.ok) { document.getElementById('result-d').innerHTML = `<div class="result-item">HTTP ${r.status} — ${JSON.stringify(j)}</div>`; return; }
+    const avail = j.diarizationAvailable
+      ? `<div class="result-item">✅ 화자분리 정상 동작 — 총 ${j.totalSegments}개 구간, ${j.speakerMatches.length}명 화자</div>`
+      : `<div class="result-item">⚠️ 화자분리 실패 → 전체를 화자 1명으로 처리 (fallback)</div>`;
+    const segs = (j.segments || []).map(s => `<div class="segment-row"><span class="time">${s.startSec.toFixed(2)}s ~ ${s.endSec.toFixed(2)}s</span><span class="speaker">${s.diarizedSpeaker}</span></div>`).join('');
+    document.getElementById('result-d').innerHTML = avail
+      + `<div class="result-item"><b>전사 텍스트</b><br/>${j.transcript?.text || ''}</div>`
+      + `<div class="result-item"><b>화자 구간</b>${segs}</div>` + rawDetails(j);
+  } catch (e) { document.getElementById('result-d').innerHTML = `<div class="result-item">❌ ${e.message}</div>`; setStatus('d', false); }
+}
+
+window.onload = () => { checkHealth(); refreshPreviews(); };
+</script>
+
+</body>
+</html>

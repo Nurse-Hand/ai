@@ -22,13 +22,17 @@ GENERATE_SYSTEM_PROMPT = f"""너는 근거(evidence) 목록을 인수인계 초�
 절차:
 1. evidences를 topic별로 묶어라. 같은 topic의 여러 근거는 하나의 item으로 압축해라.
 2. 각 item의 summary는 근거 발화들을 읽기 쉬운 한두 문장으로 정리한 것이어야 한다 - 진단이나 처방을
-   내리지 말고 사실만 정리해라.
+   내리지 말고 사실만 정리해라. evidence의 structuredFacts(증상/추이 등 이미 구조화된 사실)와
+   importanceFlags(예: follow_up_needed)를 참고해서 더 중요한 근거를 더 직접적인 문장으로 써라.
 3. evidenceRefs에는 그 item을 만드는 데 실제로 쓴 evidence의 evidenceId와 원문 그대로를
-   displayQuote로 적어라. isPrimary는 가장 핵심적인 근거 하나에만 true를 줘라. evidenceId를
-   지어내면 안 된다 - 입력에 있는 것만 인용해라.
-4. 근거들이 서로 충돌하거나(예: 같은 증상을 다르게 설명) 애매하면 requiresNurseConfirmation을
-   true로 표시해라. confidence는 근거가 명확하고 일관될수록 1.0에 가깝게, 애매할수록 낮게 매겨라.
-5. 근거가 없는 topic은 item을 만들지 마라. 억지로 채우지 마라.
+   displayQuote로 적어라(evidence.text 필드를 그대로 인용). isPrimary는 가장 핵심적인 근거
+   하나에만 true를 줘라. evidenceId를 지어내면 안 된다 - 입력에 있는 것만 인용해라.
+4. 근거들이 서로 충돌하거나(예: 같은 증상을 다르게 설명) evidence.requiresNurseConfirmation이
+   이미 true거나 애매하면 requiresNurseConfirmation을 true로 표시해라. confidence는 근거가
+   명확하고 일관될수록 1.0에 가깝게, 애매할수록 낮게 매겨라.
+5. openTasks(환자 관련 미완료 업무)가 있으면, 관련된 topic의 summary에 자연스럽게 반영해도 된다
+   (있으면 참고, 없으면 무시).
+6. 근거가 없는 topic은 item을 만들지 마라. 억지로 채우지 마라.
 반드시 한국어로만 답해라."""
 
 

@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import Settings, get_settings
 from app.deps import get_speaker_store
@@ -14,6 +15,10 @@ app.include_router(tasks.router)
 app.include_router(handoffs.router)
 app.include_router(diarization.router)
 app.include_router(speakers.router)
+
+# ponytail: dev-dashboard.html(로컬 파일)에서 브라우저 fetch로 테스트하기 위한 CORS 허용.
+# 전체 오픈이라 실제 배포 전엔 백엔드 origin만 허용하도록 좁혀야 함.
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/health")

@@ -63,7 +63,7 @@ pyannote.audio 4.x가 요구하는 `torch`/`torchaudio` 조합(`torch==2.11.0`, 
 
 **`/tasks/prioritize`**는 규칙 기반 1차 점수(`_rule_score`: 이월 여부 +3.0, 마감시각 있으면 +1.5, 위급 키워드 있으면 +2.0, 고위험 환자면 +2.0)를 먼저 계산한 뒤, gpt-4o-mini에게 그 점수의 근거를 한 문장으로 설명하게 한다. 점수 계산은 LLM한테 맡기지 않는다 — 같은 입력이면 항상 같은 점수가 나와야 하기 때문(재현성).
 
-**`/handoffs/generate`**는 근거를 인수인계 7개 섹션(topic) 기준으로 묶어서 정리한다:
+**`/handoffs/generate`**는 근거(`evidences`, `topic`/`handoffSection`/`structuredFacts`/`importanceFlags` 포함 - `precheck`의 `candidateEvidence`와 동일한 `Evidence` 스키마 공용)와, 참고용 미완료 업무(`openTasks`, 선택)를 받아서 인수인계 7개 섹션(topic) 기준으로 묶어 정리한다:
 
 | topic | 화면 표시 |
 |---|---|

@@ -60,8 +60,14 @@ generate_result = post(
             {
                 "evidenceId": "ev-1",
                 "topic": "VITAL_SIGNS",
+                "handoffSection": "활력징후",
                 "text": "301호 김OO 환자분, 산소포화도 94%에서 97%로 개선, 비강캐뉼라 산소 2L 유지",
+                "structuredFacts": {"vital": "SpO2", "trend": "개선"},
+                "importanceFlags": ["improved"],
             }
+        ],
+        "openTasks": [
+            {"taskId": "t1", "patientId": "301", "title": "산소포화도 재측정", "carriedOver": True}
         ],
     },
 )
