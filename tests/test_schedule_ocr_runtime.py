@@ -23,6 +23,8 @@ def test_docker_runtime_uses_digest_snapshot_and_exact_packages() -> None:
     assert "tesseract-ocr-eng=1:4.1.0-2" in dockerfile
     assert "libtesseract5=5.3.0-2" in dockerfile
     assert "liblept5=1.82.0-3+b3" in dockerfile
+    assert dockerfile.count("/usr/share/nurse-hand-ocr-components.lock") == 2
+    assert "/usr/share/nurse-hand-runtime-components.lock" not in dockerfile
     assert "--no-deps --only-binary=:all: --require-hashes" in dockerfile
     assert "sha256sum -c -" in dockerfile
     assert "rm -f /usr/local/lib/python3.11/site-packages/PIL/_imagingft*.so" in dockerfile

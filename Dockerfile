@@ -20,9 +20,9 @@ RUN printf '%s\n' \
       liblept5=1.82.0-3+b3 \
     && dpkg-query -W -f='${Package}\t${Version}\t${Architecture}\n' \
       ffmpeg libsndfile1 tesseract-ocr tesseract-ocr-eng libtesseract5 liblept5 \
-      > /usr/share/nurse-hand-runtime-components.lock \
+      > /usr/share/nurse-hand-ocr-components.lock \
     && sha256sum /usr/share/tesseract-ocr/5/tessdata/eng.traineddata \
-      >> /usr/share/nurse-hand-runtime-components.lock \
+      >> /usr/share/nurse-hand-ocr-components.lock \
     && echo '7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2  /usr/share/tesseract-ocr/5/tessdata/eng.traineddata' \
       | sha256sum -c - \
     && echo 'cff4f0cb5db14528a8b84f4a3389012d5c6e0f5a75a882509367b2147c05a83e  /usr/share/doc/liblept5/copyright' \
