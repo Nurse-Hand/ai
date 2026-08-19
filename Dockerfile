@@ -17,6 +17,8 @@ RUN printf '%s\n' \
       >> /usr/share/nurse-hand-ocr-components.lock \
     && echo '7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2  /usr/share/tesseract-ocr/5/tessdata/eng.traineddata' \
       | sha256sum -c - \
+    && echo 'cff4f0cb5db14528a8b84f4a3389012d5c6e0f5a75a882509367b2147c05a83e  /usr/share/doc/liblept5/copyright' \
+      | sha256sum -c - \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt requirements-ocr-api.txt requirements-ocr.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \

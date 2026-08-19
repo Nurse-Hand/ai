@@ -45,6 +45,7 @@ def test_required_ocr_notices_and_upstream_inventory_are_preserved() -> None:
         "licenses/LGPL-2.1-or-later.txt",
         "licenses/Tesseract-5.3.0-LICENSE.txt",
         "licenses/tessdata-4.1.0-LICENSE.txt",
+        "licenses/Leptonica-1.82.0-LICENSE.txt",
     ]
     assert all((ROOT / path).is_file() for path in required)
     notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
@@ -56,6 +57,27 @@ def test_required_ocr_notices_and_upstream_inventory_are_preserved() -> None:
     assert "removes the `_imagingft`" in notices
     assert "Debian `libfribidi0`" in notices
     assert "pillow_sdist_sha256=3b8182a766685eaa" in (ROOT / "ocr-components.lock").read_text(encoding="utf-8")
+
+
+def test_leptonica_license_source_and_image_notice_are_hash_locked() -> None:
+    license_bytes = (ROOT / "licenses" / "Leptonica-1.82.0-LICENSE.txt").read_bytes()
+    digest = hashlib.sha256(license_bytes).hexdigest()
+    assert digest == "4d3065116f182e29760af0c901d5dbb2e1e16c42765dfc24e69b26805e2acb1e"
+
+    lock = (ROOT / "ocr-components.lock").read_text(encoding="utf-8")
+    assert f"leptonica_preserved_license_sha256={digest}" in lock
+    assert "leptonica_upstream_license_download_sha256=87829abb5bbb00b55a107365da89e9a33" in lock
+    assert "leptonica_upstream_version=1.82.0" in lock
+    assert "leptonica_upstream_source_sha256=40fa9ac1e815b91e0fa73f0737e60c9e" in lock
+    assert "liblept5_debian_copyright_sha256=cff4f0cb5db14528a8b84f4a3389012d" in lock
+
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "cff4f0cb5db14528a8b84f4a3389012d5c6e0f5a75a882509367b2147c05a83e  /usr/share/doc/liblept5/copyright" in dockerfile
+
+    notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    assert "## Leptonica 1.82.0" in notices
+    assert "binary distributions" in notices
+    assert "full-image SBOM" in notices
 
 
 def test_preserved_pillow_license_matches_fixed_linux_wheel_hash() -> None:

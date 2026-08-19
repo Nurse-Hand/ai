@@ -65,6 +65,24 @@ evidence.
 - Preserved license: `licenses/tessdata-4.1.0-LICENSE.txt`.
 - `eng.traineddata` SHA-256 is fixed and verified during image build.
 
+## Leptonica 1.82.0
+
+- Runtime package: Debian bookworm `liblept5=1.82.0-3+b3` from the fixed snapshot.
+- Upstream source: official `DanBloomberg/leptonica` tag `1.82.0`; source archive URL and
+  SHA-256 are fixed in `ocr-components.lock`.
+- License: Leptonica license, a permissive two-condition redistribution license requiring
+  preservation of the copyright notice, conditions and disclaimer in source distributions,
+  and reproduction of them in documentation or other materials for binary distributions.
+- The upstream license/copyright text is preserved at
+  `licenses/Leptonica-1.82.0-LICENSE.txt`. The official raw download digest and the
+  repository LF-normalized file digest are separately fixed in `ocr-components.lock`;
+  their only byte difference is the raw file's extra terminal blank line.
+- The exact Debian package copyright file remains in the image at
+  `/usr/share/doc/liblept5/copyright`; its image SHA-256 is fixed and checked during build.
+- Leptonica links image format libraries such as libjpeg, libpng, libtiff, libwebp and
+  openjpeg. Their actual image packages remain part of the generated full-image SBOM and
+  redistribution review; this notice does not clear their separate obligations.
+
 ## Deployment gate
 
 Do not enable or deploy the OCR engine when the built image inventory contains
