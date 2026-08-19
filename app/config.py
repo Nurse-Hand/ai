@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     min_speaker_total_sec: float = 1.2
     max_speaker_total_sec: Optional[float] = None
     keep_uploads: bool = False
+    audio_max_upload_bytes: int = 25 * 1024 * 1024
+    audio_max_request_bytes: int = 26 * 1024 * 1024
+    audio_processing_timeout_seconds: float = 120.0
+    audio_cleanup_attempts: int = 3
 
     # 업무/인수인계 AI 판단 로직
     openai_api_key: Optional[str] = None

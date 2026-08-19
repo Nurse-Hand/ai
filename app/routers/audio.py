@@ -1,9 +1,11 @@
-import shutil
+import asyncio
+import logging
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from pydantic import ValidationError
 
 from app.audio_contracts import (
     AnalyzeAudioResponse,
@@ -16,14 +18,39 @@ from app.config import Settings, get_settings
 from app.deps import get_diarization_service, get_transcription_service
 from app.errors import INTERNAL_ERROR_RESPONSES, InferenceFailure, InferenceFailureCode
 from app.services.analysis import find_best_overlap
-from app.services.audio import normalize_audio, persist_upload
+from app.services.audio import (
+    AudioDecodeError,
+    AudioProcessingTimeoutError,
+    AudioToolUnavailableError,
+    AudioTooLargeError,
+    cleanup_job_dir,
+    normalize_audio,
+    persist_upload,
+)
 from app.services.diarization import DiarizationService
 from app.services.transcription import TranscriptionService
+
+logger = logging.getLogger(__name__)
+
+
+def enforce_audio_request_size(
+    request: Request, settings: Settings = Depends(get_settings)
+) -> None:
+    raw_length = request.headers.get("content-length")
+    try:
+        content_length = int(raw_length) if raw_length is not None else None
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail={"code": "INVALID_INPUT"}) from error
+    if content_length is None or content_length < 0:
+        raise HTTPException(status_code=422, detail={"code": "INVALID_INPUT"})
+    if content_length > settings.audio_max_request_bytes:
+        raise HTTPException(status_code=422, detail={"code": "INVALID_INPUT"})
+
 
 router = APIRouter(
     prefix="/internal/v1/audio",
     tags=["internal-audio"],
-    dependencies=[Depends(verify_internal_token)],
+    dependencies=[Depends(verify_internal_token), Depends(enforce_audio_request_size)],
     responses=INTERNAL_ERROR_RESPONSES,
 )
 
@@ -45,11 +72,19 @@ async def analyze_audio(
 
     job_dir = settings.tmp_dir / f"internal-analyze-{uuid4()}"
     try:
-        uploaded_path = await persist_upload(audio, job_dir)
+        uploaded_path = await persist_upload(
+            audio, job_dir, max_bytes=settings.audio_max_upload_bytes
+        )
         normalized_path = job_dir / "normalized-16k-mono.wav"
         normalize_audio(uploaded_path, normalized_path, settings)
-        transcript, utterances = await transcription_service.transcribe(normalized_path)
-        diarization_available, segments = diarization_service.analyze(normalized_path)
+        transcript, utterances = await asyncio.wait_for(
+            transcription_service.transcribe(normalized_path),
+            timeout=settings.audio_processing_timeout_seconds,
+        )
+        diarization_available, segments = await asyncio.wait_for(
+            asyncio.to_thread(diarization_service.analyze, normalized_path),
+            timeout=settings.audio_processing_timeout_seconds,
+        )
         if transcript.provider == "none" or not diarization_available:
             raise InferenceFailure(InferenceFailureCode.UNAVAILABLE)
 
@@ -88,8 +123,14 @@ async def analyze_audio(
         )
     except InferenceFailure:
         raise
-    except httpx.TimeoutException as error:
+    except (AudioTooLargeError, AudioDecodeError) as error:
+        raise HTTPException(status_code=422, detail={"code": "INVALID_INPUT"}) from error
+    except (asyncio.TimeoutError, AudioProcessingTimeoutError, httpx.TimeoutException) as error:
         raise InferenceFailure(InferenceFailureCode.TIMEOUT) from error
+    except ValidationError as error:
+        raise InferenceFailure(InferenceFailureCode.INVALID_RESPONSE) from error
+    except AudioToolUnavailableError as error:
+        raise InferenceFailure(InferenceFailureCode.UNAVAILABLE) from error
     except httpx.HTTPStatusError as error:
         code = (
             InferenceFailureCode.RATE_LIMITED
@@ -100,4 +141,6 @@ async def analyze_audio(
     except Exception as error:
         raise InferenceFailure(InferenceFailureCode.UNAVAILABLE) from error
     finally:
-        shutil.rmtree(job_dir, ignore_errors=True)
+        if not cleanup_job_dir(job_dir, settings.audio_cleanup_attempts):
+            logger.error("Internal audio temporary cleanup failed.")
+            raise InferenceFailure(InferenceFailureCode.UNAVAILABLE)
