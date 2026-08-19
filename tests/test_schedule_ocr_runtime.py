@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -46,3 +47,13 @@ def test_required_ocr_notices_and_upstream_inventory_are_preserved() -> None:
     assert "not evidence that every optional component is bundled" in notices
     assert "Vendored raqm code" in notices
     assert "pillow_sdist_sha256=3b8182a766685eaa" in (ROOT / "ocr-components.lock").read_text(encoding="utf-8")
+
+
+def test_preserved_pillow_license_matches_fixed_linux_wheel_hash() -> None:
+    license_bytes = (ROOT / "licenses" / "Pillow-12.3.0-LICENSE.txt").read_bytes()
+    digest = hashlib.sha256(license_bytes).hexdigest()
+    assert digest == "dda12a98c1979cf3d94df1cff45d27a4cb3f04a60c76f76902ac54cac03ec0ce"
+    lock = (ROOT / "ocr-components.lock").read_text(encoding="utf-8")
+    assert f"pillow_cp311_manylinux_x86_64_embedded_license_sha256={digest}" in lock
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert f"{digest}  /usr/local/lib/python3.11/site-packages/pillow-12.3.0.dist-info/licenses/LICENSE" in dockerfile

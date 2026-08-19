@@ -9,7 +9,9 @@ SBOM and license obligations must be reviewed before production deployment.
 - Source: official PyPI CPython 3.11 manylinux x86_64 wheel.
 - Project license expression: MIT-CMU.
 - Exact wheel digest: see `requirements-ocr.txt` and `ocr-components.lock`.
-- Preserved notices: `licenses/Pillow-12.3.0-LICENSE.txt`.
+- Exact embedded LICENSE extracted from the fixed CPython 3.11 manylinux x86_64 wheel:
+  `licenses/Pillow-12.3.0-LICENSE.txt`. Its SHA-256 is fixed in `ocr-components.lock` and
+  rechecked against the installed wheel during the Docker build.
 - Preserved PEP 770 inventory: `licenses/Pillow-12.3.0.cdx.json`.
 - Corresponding Pillow 12.3.0 source: official PyPI `pillow-12.3.0.tar.gz`, URL and
   SHA-256 recorded in `ocr-components.lock`.

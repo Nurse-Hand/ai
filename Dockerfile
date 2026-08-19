@@ -21,6 +21,8 @@ RUN printf '%s\n' \
 COPY requirements.txt requirements-ocr.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir --no-deps --only-binary=:all: --require-hashes -r requirements-ocr.txt \
+    && echo 'dda12a98c1979cf3d94df1cff45d27a4cb3f04a60c76f76902ac54cac03ec0ce  /usr/local/lib/python3.11/site-packages/pillow-12.3.0.dist-info/licenses/LICENSE' \
+      | sha256sum -c - \
     && python -c "from PIL import features; assert features.check_feature('libimagequant') is False; assert features.check_feature('raqm') is False" \
     && python -c "from io import BytesIO; from PIL import Image; [Image.open(BytesIO((lambda b: (Image.new('RGB',(32,32),'white').save(b, f), b.getvalue())[1])(BytesIO()))).load() for f in ('PNG','JPEG')]" \
     && python -c "from pathlib import Path; root=Path(__import__('PIL').__file__).parent.parent; names=[p.name.lower() for p in root.rglob('*') if p.is_file()]; assert not any(any(token in name for token in ('imagequant','fribidi','raqm')) for name in names)" \
