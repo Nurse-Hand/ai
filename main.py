@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+import os
 
 load_dotenv()
 
@@ -6,6 +7,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import Settings, get_settings
+from app.cors import parse_cors_allowed_origins
 from app.deps import get_speaker_store
 from app.routers import diarization, handoffs, schedule_ocr, speakers, tasks
 from app.routers.schedule_ocr import schedule_ocr_error_handler
@@ -22,9 +24,12 @@ app.include_router(schedule_ocr.router)
 app.add_exception_handler(ScheduleOcrError, schedule_ocr_error_handler)
 app.add_middleware(ScheduleOcrBodyLimitMiddleware)
 
-# ponytail: dev-dashboard.html(로컬 파일)에서 브라우저 fetch로 테스트하기 위한 CORS 허용.
-# 전체 오픈이라 실제 배포 전엔 백엔드 origin만 허용하도록 좁혀야 함.
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=parse_cors_allowed_origins(os.getenv("CORS_ALLOWED_ORIGINS")),
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Internal-Token"],
+)
 
 
 @app.get("/health")
