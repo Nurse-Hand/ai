@@ -7,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import Settings, get_settings
 from app.deps import get_speaker_store
-from app.routers import diarization, handoffs, speakers, tasks
+from app.routers import diarization, handoffs, schedule_ocr, speakers, tasks
+from app.routers.schedule_ocr import schedule_ocr_error_handler
+from app.schedule_ocr.errors import ScheduleOcrError
 from app.services.speaker_store import SpeakerStore
 
 app = FastAPI(title="Nurse Hand AI Server")
@@ -15,6 +17,8 @@ app.include_router(tasks.router)
 app.include_router(handoffs.router)
 app.include_router(diarization.router)
 app.include_router(speakers.router)
+app.include_router(schedule_ocr.router)
+app.add_exception_handler(ScheduleOcrError, schedule_ocr_error_handler)
 
 # ponytail: dev-dashboard.html(로컬 파일)에서 브라우저 fetch로 테스트하기 위한 CORS 허용.
 # 전체 오픈이라 실제 배포 전엔 백엔드 origin만 허용하도록 좁혀야 함.
