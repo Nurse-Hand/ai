@@ -36,8 +36,7 @@ SBOM and license obligations must be reviewed before production deployment.
   binaries do not enable libimagequant.
 - The fixed wheel archive contains no `libfribidi` shared library.
 
-The upstream package-level PEP 770 inventory also lists optional build components; it is not
-evidence that every listed component is bundled in the selected wheel. The wheel archive
+The upstream package-level PEP 770 inventory also lists optional build components; it is not evidence that every optional component is bundled in the selected wheel. The wheel archive
 list, auditwheel SBOM, build feature checks and final `ldd` output are the controlling image
 evidence.
 
