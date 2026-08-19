@@ -1,57 +1,6 @@
 {
   "components": {
     "schemas": {
-      "Body_recognize_schedule_internal_v1_schedules_ocr_post": {
-        "properties": {
-          "image": {
-            "anyOf": [
-              {
-                "contentMediaType": "application/octet-stream",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Image"
-          },
-          "rowIndex": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rowindex"
-          },
-          "templateId": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Templateid"
-          },
-          "yearMonth": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Yearmonth"
-          }
-        },
-        "title": "Body_recognize_schedule_internal_v1_schedules_ocr_post",
-        "type": "object"
-      },
       "ErrorDetail": {
         "additionalProperties": false,
         "properties": {
@@ -91,9 +40,9 @@
           },
           "token": {
             "enum": [
-              "D",
-              "E",
-              "N",
+              "DAY",
+              "EVENING",
+              "NIGHT",
               "OFF",
               "UNKNOWN"
             ],
@@ -197,8 +146,23 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_recognize_schedule_internal_v1_schedules_ocr_post",
+                "additionalProperties": false,
                 "properties": {
+                  "expectedHeight": {
+                    "example": 1200,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "expectedSha256": {
+                    "example": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "expectedWidth": {
+                    "example": 1600,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
                   "image": {
                     "format": "binary",
                     "type": "string"
@@ -225,7 +189,10 @@
                   "image",
                   "yearMonth",
                   "templateId",
-                  "rowIndex"
+                  "rowIndex",
+                  "expectedWidth",
+                  "expectedHeight",
+                  "expectedSha256"
                 ],
                 "type": "object"
               }

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from app.auth import verify_internal_token
 from app.schedule_ocr.engine import TesseractCellOcrEngine
-from app.schedule_ocr.errors import ScheduleOcrError, invalid_request
+from app.schedule_ocr.errors import ScheduleOcrError
+from app.schedule_ocr.multipart import ScheduleOcrMultipartRequest, parse_schedule_ocr_form
 from app.schedule_ocr.schemas import ScheduleOcrErrorResponse, ScheduleOcrResponse
 from app.schedule_ocr.service import ScheduleOcrService
 from app.schedule_ocr.settings import ScheduleOcrSettings, get_schedule_ocr_settings
@@ -22,12 +23,22 @@ MULTIPART_SCHEMA = {
             "multipart/form-data": {
                 "schema": {
                     "type": "object",
-                    "required": ["image", "yearMonth", "templateId", "rowIndex"],
+                    "additionalProperties": False,
+                    "required": [
+                        "image", "yearMonth", "templateId", "rowIndex",
+                        "expectedWidth", "expectedHeight", "expectedSha256",
+                    ],
                     "properties": {
                         "image": {"type": "string", "format": "binary"},
                         "yearMonth": {"type": "string", "pattern": "^20[0-9]{2}-(0[1-9]|1[0-2])$", "example": "2026-08"},
                         "templateId": {"type": "string", "enum": ["NURSE_HAND_FIXED_V1"]},
                         "rowIndex": {"type": "integer", "minimum": 0, "maximum": 15, "example": 3},
+                        "expectedWidth": {"type": "integer", "minimum": 1, "example": 1600},
+                        "expectedHeight": {"type": "integer", "minimum": 1, "example": 1200},
+                        "expectedSha256": {
+                            "type": "string", "pattern": "^[0-9a-f]{64}$",
+                            "example": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                        },
                     },
                 }
             }
@@ -73,25 +84,20 @@ async def schedule_ocr_error_handler(_request: Request, exc: ScheduleOcrError) -
     },
 )
 async def recognize_schedule(
-    image: UploadFile | None = File(None),
-    yearMonth: str | None = Form(None),
-    templateId: str | None = Form(None),
-    rowIndex: str | None = Form(None),
+    multipart: ScheduleOcrMultipartRequest = Depends(parse_schedule_ocr_form),
     service: ScheduleOcrService = Depends(get_schedule_ocr_service),
 ) -> ScheduleOcrResponse:
-    if image is None or yearMonth is None or templateId is None or rowIndex is None:
-        raise invalid_request("image, yearMonth, templateId, rowIndex는 필수입니다.")
-    try:
-        parsed_row_index = int(rowIndex)
-    except ValueError as exc:
-        raise invalid_request("rowIndex는 정수여야 합니다.") from exc
-
+    image = multipart.image
+    fields = multipart.fields
     image_bytes = await image.read(service.max_image_bytes + 1)
     return service.recognize(
         image_bytes=image_bytes,
         content_type=image.content_type,
         filename=image.filename,
-        year_month=yearMonth,
-        template_id=templateId,
-        row_index=parsed_row_index,
+        year_month=fields.yearMonth,
+        template_id=fields.templateId,
+        row_index=fields.rowIndex,
+        expected_width=fields.expectedWidth,
+        expected_height=fields.expectedHeight,
+        expected_sha256=fields.expectedSha256,
     )

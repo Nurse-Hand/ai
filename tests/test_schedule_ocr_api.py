@@ -1,4 +1,5 @@
 from io import BytesIO
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -68,11 +69,16 @@ def client() -> TestClient:
 
 
 def valid_request(test_client: TestClient):
+    image = synthetic_png()
     return test_client.post(
         "/internal/v1/schedules/ocr",
         headers={"X-Internal-Token": "test-token"},
-        files={"image": ("synthetic.png", synthetic_png(), "image/png")},
-        data={"yearMonth": "2026-02", "templateId": "NURSE_HAND_FIXED_V1", "rowIndex": "3"},
+        files={"image": ("synthetic.png", image, "image/png")},
+        data={
+            "yearMonth": "2026-02", "templateId": "NURSE_HAND_FIXED_V1", "rowIndex": "3",
+            "expectedWidth": "1600", "expectedHeight": "1200",
+            "expectedSha256": hashlib.sha256(image).hexdigest(),
+        },
     )
 
 
@@ -88,7 +94,9 @@ def test_success_wire_contract() -> None:
     assert payload["contractVersion"] == "schedule-ocr.v1"
     assert payload["templateId"] == "NURSE_HAND_FIXED_V1"
     assert payload["yearMonth"] == "2026-02"
-    assert payload["cells"][0] == {"date": "2026-02-01", "token": "D", "confidence": 0.95, "needsReview": False}
+    assert payload["cells"][0] == {
+        "date": "2026-02-01", "token": "DAY", "confidence": 0.95, "needsReview": False,
+    }
     assert len(payload["cells"]) == 28
 
 
@@ -101,11 +109,54 @@ def test_missing_form_has_stable_error_envelope() -> None:
 
 
 def test_invalid_row_index_has_stable_error_envelope() -> None:
+    image = synthetic_png()
     response = client().post(
         "/internal/v1/schedules/ocr",
         headers={"X-Internal-Token": "test-token"},
-        files={"image": ("synthetic.png", synthetic_png(), "image/png")},
-        data={"yearMonth": "2026-02", "templateId": "NURSE_HAND_FIXED_V1", "rowIndex": "1.5"},
+        files={"image": ("synthetic.png", image, "image/png")},
+        data={
+            "yearMonth": "2026-02", "templateId": "NURSE_HAND_FIXED_V1", "rowIndex": "1.5",
+            "expectedWidth": "1600", "expectedHeight": "1200",
+            "expectedSha256": hashlib.sha256(image).hexdigest(),
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "SCHEDULE_OCR_INVALID_REQUEST"
+
+
+def test_noncanonical_row_index_and_unknown_field_are_rejected() -> None:
+    image = synthetic_png()
+    fields = {
+        "yearMonth": "2026-02", "templateId": "NURSE_HAND_FIXED_V1", "rowIndex": "+3",
+        "expectedWidth": "1600", "expectedHeight": "1200",
+        "expectedSha256": hashlib.sha256(image).hexdigest(),
+    }
+    test_client = client()
+    noncanonical = test_client.post(
+        "/internal/v1/schedules/ocr", headers={"X-Internal-Token": "test-token"},
+        files={"image": ("synthetic.png", image, "image/png")}, data=fields,
+    )
+    assert noncanonical.status_code == 400
+
+    fields["rowIndex"] = "3"
+    fields["unexpected"] = "not-allowed"
+    unknown = test_client.post(
+        "/internal/v1/schedules/ocr", headers={"X-Internal-Token": "test-token"},
+        files={"image": ("synthetic.png", image, "image/png")}, data=fields,
+    )
+    assert unknown.status_code == 400
+    assert unknown.json()["error"]["code"] == "SCHEDULE_OCR_INVALID_REQUEST"
+
+
+def test_expected_image_metadata_is_enforced() -> None:
+    image = synthetic_png()
+    response = client().post(
+        "/internal/v1/schedules/ocr", headers={"X-Internal-Token": "test-token"},
+        files={"image": ("synthetic.png", image, "image/png")},
+        data={
+            "yearMonth": "2026-02", "templateId": "NURSE_HAND_FIXED_V1", "rowIndex": "3",
+            "expectedWidth": "1599", "expectedHeight": "1200", "expectedSha256": "0" * 64,
+        },
     )
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "SCHEDULE_OCR_INVALID_REQUEST"
@@ -125,7 +176,17 @@ def test_openapi_declares_required_multipart_and_errors() -> None:
     schema = client().get("/openapi.json").json()
     operation = schema["paths"]["/internal/v1/schedules/ocr"]["post"]
     body_schema = operation["requestBody"]["content"]["multipart/form-data"]["schema"]
-    assert body_schema["required"] == ["image", "yearMonth", "templateId", "rowIndex"]
+    assert body_schema["required"] == [
+        "image", "yearMonth", "templateId", "rowIndex",
+        "expectedWidth", "expectedHeight", "expectedSha256",
+    ]
+    assert body_schema["additionalProperties"] is False
+    assert body_schema["properties"]["rowIndex"]["type"] == "integer"
+    response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert response_schema["$ref"] == "#/components/schemas/ScheduleOcrResponse"
+    assert schema["components"]["schemas"]["ScheduleOcrCell"]["properties"]["token"]["enum"] == [
+        "DAY", "EVENING", "NIGHT", "OFF", "UNKNOWN",
+    ]
     assert set(operation["responses"]) >= {"200", "400", "415", "422", "502", "503", "504"}
 
 

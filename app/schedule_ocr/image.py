@@ -72,6 +72,8 @@ def decode_image(
     min_width: int,
     min_height: int,
     max_pixels: int,
+    expected_width: int | None = None,
+    expected_height: int | None = None,
 ) -> Image.Image:
     signature_format = _signature_format(data)
     if signature_format is None:
@@ -86,6 +88,10 @@ def decode_image(
     if dimensions is None:
         raise decode_failed()
     width, height = dimensions
+    if expected_width is not None and width != expected_width:
+        raise unsupported_image("이미지 width가 요청 metadata와 일치하지 않습니다.")
+    if expected_height is not None and height != expected_height:
+        raise unsupported_image("이미지 height가 요청 metadata와 일치하지 않습니다.")
     if width < min_width or height < min_height:
         raise unsupported_image("이미지 해상도가 최소 기준보다 작습니다.")
     if width * height > max_pixels:

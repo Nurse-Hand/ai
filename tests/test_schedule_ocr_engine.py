@@ -110,6 +110,19 @@ def test_unknown_always_needs_review() -> None:
     assert "REVIEW_REQUIRED" in result.warnings
 
 
+@pytest.mark.parametrize(
+    ("internal_token", "wire_token"),
+    [("D", "DAY"), ("E", "EVENING"), ("N", "NIGHT"), ("OFF", "OFF"), ("UNKNOWN", "UNKNOWN")],
+)
+def test_internal_candidates_map_to_wire_tokens(internal_token: str, wire_token: str) -> None:
+    candidate = OcrCandidate(internal_token, 0.95)  # type: ignore[arg-type]
+    result = service(RecordingEngine(candidate)).recognize(
+        image_bytes=synthetic_grid(), content_type="image/png", filename="synthetic.png",
+        year_month="2026-02", template_id="NURSE_HAND_FIXED_V1", row_index=3,
+    )
+    assert result.cells[0].token == wire_token
+
+
 @pytest.mark.parametrize(("template_id", "row_index", "year_month"), [
     ("UNKNOWN", 0, "2026-01"), ("NURSE_HAND_FIXED_V1", -1, "2026-01"),
     ("NURSE_HAND_FIXED_V1", 16, "2026-01"), ("NURSE_HAND_FIXED_V1", 0, "2026-13"),

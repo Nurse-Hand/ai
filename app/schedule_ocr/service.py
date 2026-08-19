@@ -1,4 +1,5 @@
 import calendar
+import hashlib
 import re
 from datetime import date
 
@@ -11,6 +12,13 @@ from app.schedule_ocr.schemas import ScheduleOcrCell, ScheduleOcrResponse
 from app.schedule_ocr.templates import ScheduleTemplate, get_template
 
 YEAR_MONTH_PATTERN = re.compile(r"^(?P<year>20\d{2})-(?P<month>0[1-9]|1[0-2])$")
+WIRE_TOKENS = {
+    "D": "DAY",
+    "E": "EVENING",
+    "N": "NIGHT",
+    "OFF": "OFF",
+    "UNKNOWN": "UNKNOWN",
+}
 
 
 def _dark_ratio(image: Image.Image) -> float:
@@ -174,11 +182,16 @@ class ScheduleOcrService:
         year_month: str,
         template_id: str,
         row_index: int,
+        expected_width: int | None = None,
+        expected_height: int | None = None,
+        expected_sha256: str | None = None,
     ) -> ScheduleOcrResponse:
         if not image_bytes:
             raise invalid_request("image가 비어 있습니다.")
         if len(image_bytes) > self.max_image_bytes:
             raise invalid_request("image 크기가 최대 기준을 초과합니다.")
+        if expected_sha256 is not None and hashlib.sha256(image_bytes).hexdigest() != expected_sha256:
+            raise invalid_request("image SHA-256이 요청 metadata와 일치하지 않습니다.")
         match = YEAR_MONTH_PATTERN.fullmatch(year_month)
         if match is None:
             raise invalid_request("yearMonth는 YYYY-MM 형식이어야 합니다.")
@@ -191,6 +204,8 @@ class ScheduleOcrService:
             min_width=self.min_image_width,
             min_height=self.min_image_height,
             max_pixels=self.max_image_pixels,
+            expected_width=expected_width,
+            expected_height=expected_height,
         )
         normalized = validate_template_structure(image, template)
         cells = selected_cells(normalized, template, row_index, calendar.monthrange(year, month)[1])
@@ -201,7 +216,7 @@ class ScheduleOcrService:
             response_cells.append(
                 ScheduleOcrCell(
                     date=date(year, month, day),
-                    token=candidate.token,
+                    token=WIRE_TOKENS[candidate.token],  # type: ignore[arg-type]
                     confidence=candidate.confidence,
                     needsReview=candidate.token == "UNKNOWN" or candidate.confidence < self.review_threshold,
                 )

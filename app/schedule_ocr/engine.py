@@ -8,12 +8,12 @@ from typing import Protocol
 from PIL import Image
 
 from app.schedule_ocr.errors import engine_failed, engine_timeout, engine_unavailable
-from app.schedule_ocr.schemas import ScheduleToken
+from app.schedule_ocr.schemas import InternalScheduleToken
 
 
 @dataclass(frozen=True, slots=True)
 class OcrCandidate:
-    token: ScheduleToken
+    token: InternalScheduleToken
     confidence: float
 
 

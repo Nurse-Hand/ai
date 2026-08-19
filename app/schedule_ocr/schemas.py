@@ -3,7 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ScheduleToken = Literal["D", "E", "N", "OFF", "UNKNOWN"]
+InternalScheduleToken = Literal["D", "E", "N", "OFF", "UNKNOWN"]
+ScheduleToken = Literal["DAY", "EVENING", "NIGHT", "OFF", "UNKNOWN"]
 
 
 class StrictModel(BaseModel):
