@@ -37,6 +37,7 @@ def call_structured(system_prompt: str, user_content: str, response_model: type[
                     {"role": "user", "content": user_content},
                 ],
                 response_format=response_model,
+                temperature=0,  # 분류/판단 작업이라 매번 같은 입력엔 같은 출력이 나와야 함 (재현성)
             )
             return completion.choices[0].message.parsed
         except RateLimitError as e:

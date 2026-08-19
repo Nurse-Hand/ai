@@ -19,20 +19,45 @@ router = APIRouter(prefix="/internal/v1/handoffs", tags=["handoffs"], dependenci
 GENERATE_SYSTEM_PROMPT = f"""너는 근거(evidence) 목록을 인수인계 초안 항목으로 정리하는 도우미다.
 인수인계는 아래 7개 섹션(topic)만 쓴다: {", ".join(f'{k}({v})' for k, v in HANDOFF_SECTIONS.items())}
 
-절차:
-1. evidences를 topic별로 묶어라. 같은 topic의 여러 근거는 하나의 item으로 압축해라.
+## 0단계 - 먼저 머릿속으로 이것부터 해라 (출력하지 말고 판단에만 써라)
+각 evidence.text를 문장/절 단위로 쪼개서, 각 조각이 7개 섹션 중 어디에 해당하는지 하나하나
+표시해라. 하나의 evidence.text에 서로 다른 섹션 내용이 여러 개 섞여 있으면, 그 개수만큼
+섹션이 나와야 한다. evidence.originalTopicHint는 힌트일 뿐 정답이 아니다 - 반드시 text 내용을
+기준으로 판단해라. 이 사전 분류를 건너뛰고 바로 topic 태그만 보고 item을 만들면 안 된다.
+OBSERVATION(관찰사항·특이사항)은 나머지 6개 섹션 중 어디에도 안 맞는 내용만 넣는 최후 수단이다
+- "관찰"이라는 이름 때문에 아무거나 다 여기 넣지 마라. 처치 내용은 TREATMENT로, 의식 상태는
+MENTAL_STATUS로, 활력징후는 VITAL_SIGNS로 보내고, 정말 그 6개 어디에도 안 들어가는 내용
+(낙상 위험, 보호자 문의, 불안, 행동 변화 등)만 OBSERVATION으로 분류해라.
+
+## 예시 (형식 참고용, 실제 입력이 아님)
+입력 evidence.text: "산소포화도 94%에서 97%로 개선. 식사는 절반 정도만 드셨습니다."
+(evidence.originalTopicHint가 "PAIN"이었다고 해도) 올바른 분류:
+- "산소포화도 94%에서 97%로 개선" → VITAL_SIGNS
+- "식사는 절반 정도만 드셨습니다" → DIET
+- PAIN에 해당하는 내용 없음 → PAIN item 없음
+→ 이 evidence 하나에서 VITAL_SIGNS item 1개 + DIET item 1개, 총 2개가 나와야 한다.
+   VITAL_SIGNS 하나만 만들고 DIET 문장을 버리면 틀린 것이다.
+
+## item 생성 절차
+1. 0단계에서 섹션별로 나눈 조각마다 item을 만들어라. 같은 섹션으로 분류된 여러 조각(다른
+   evidence에서 온 것 포함)은 하나의 item으로 합쳐라.
 2. 각 item의 summary는 근거 발화들을 읽기 쉬운 한두 문장으로 정리한 것이어야 한다 - 진단이나 처방을
    내리지 말고 사실만 정리해라. evidence의 structuredFacts(증상/추이 등 이미 구조화된 사실)와
    importanceFlags(예: follow_up_needed)를 참고해서 더 중요한 근거를 더 직접적인 문장으로 써라.
-3. evidenceRefs에는 그 item을 만드는 데 실제로 쓴 evidence의 evidenceId와 원문 그대로를
-   displayQuote로 적어라(evidence.text 필드를 그대로 인용). isPrimary는 가장 핵심적인 근거
-   하나에만 true를 줘라. evidenceId를 지어내면 안 된다 - 입력에 있는 것만 인용해라.
+3. evidenceRefs에는 그 item을 만드는 데 실제로 쓴 evidence의 evidenceId와, 그 섹션에 해당하는
+   부분만 골라서 원문 그대로를 displayQuote로 적어라(evidence.text 중 해당 부분만 그대로 인용,
+   요약하지 말고 원문 그대로 - 다른 섹션에 해당하는 문장까지 같이 인용하지 마라). isPrimary는
+   가장 핵심적인 근거 하나에만 true를 줘라. evidenceId를 지어내면 안 된다 - 입력에 있는 것만
+   인용해라.
 4. 근거들이 서로 충돌하거나(예: 같은 증상을 다르게 설명) evidence.requiresNurseConfirmation이
    이미 true거나 애매하면 requiresNurseConfirmation을 true로 표시해라. confidence는 근거가
    명확하고 일관될수록 1.0에 가깝게, 애매할수록 낮게 매겨라.
 5. openTasks(환자 관련 미완료 업무)가 있으면, 관련된 topic의 summary에 자연스럽게 반영해도 된다
    (있으면 참고, 없으면 무시).
-6. 근거가 없는 topic은 item을 만들지 마라. 억지로 채우지 마라.
+6. 실제로 내용이 있는 섹션만 item으로 만들어라. 내용이 없는 섹션은 절대 만들지 마라 - topic
+   태그가 붙어있어도 내용이 없으면 만들지 않는다.
+7. 마지막에 스스로 점검해라: evidence.text에 있는 모든 문장이 어느 item엔가 반영됐는지 확인하고,
+   빠진 문장이 있으면 그 문장에 맞는 섹션의 item을 추가하거나 기존 item에 합쳐라.
 반드시 한국어로만 답해라."""
 
 
@@ -48,7 +73,13 @@ def generate_handoff(req: GenerateHandoffRequest) -> GenerateHandoffResponse:
     if not req.evidences:
         return stub
 
-    user_content = req.model_dump_json(by_alias=True)
+    # ponytail: evidence.topic 필드를 그대로 보내면 LLM이 "이미 분류돼있다"고 과신해서
+    # text 내용과 달라도 topic을 안 바꾸는 경향이 실측으로 확인됨(temperature=0에서도 재현).
+    # originalTopicHint로 이름을 바꿔서 "참고용, 틀릴 수 있음"이라는 프레이밍을 강제함.
+    payload = req.model_dump(by_alias=True)
+    for e in payload.get("evidences", []):
+        e["originalTopicHint"] = e.pop("topic")
+    user_content = json.dumps(payload, ensure_ascii=False)
     result = call_structured(GENERATE_SYSTEM_PROMPT, user_content, GenerateHandoffResponse, stub)
     # LLM이 베껴 쓰게 두지 않고 식별자는 항상 원본/서버 생성값으로 덮어씀
     result.draft_id = draft_id
