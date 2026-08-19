@@ -1,3 +1,7 @@
+ALLOWED_CORS_METHODS = ["GET", "POST", "DELETE", "OPTIONS"]
+ALLOWED_CORS_HEADERS = ["Content-Type", "X-Internal-Token"]
+
+
 def parse_cors_allowed_origins(raw: str | None) -> list[str]:
     if raw is None or not raw.strip():
         return []

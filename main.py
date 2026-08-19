@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import Settings, get_settings
-from app.cors import parse_cors_allowed_origins
+from app.cors import ALLOWED_CORS_HEADERS, ALLOWED_CORS_METHODS, parse_cors_allowed_origins
 from app.deps import get_speaker_store
 from app.routers import diarization, handoffs, schedule_ocr, speakers, tasks
 from app.routers.schedule_ocr import schedule_ocr_error_handler
@@ -27,8 +27,8 @@ app.add_middleware(ScheduleOcrBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=parse_cors_allowed_origins(os.getenv("CORS_ALLOWED_ORIGINS")),
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Internal-Token"],
+    allow_methods=ALLOWED_CORS_METHODS,
+    allow_headers=ALLOWED_CORS_HEADERS,
 )
 
 

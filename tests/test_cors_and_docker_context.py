@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 import pytest
 
-from app.cors import parse_cors_allowed_origins
+from app.cors import ALLOWED_CORS_HEADERS, ALLOWED_CORS_METHODS, parse_cors_allowed_origins
+from app.routers.speakers import router as speakers_router
 from main import app
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,8 +24,8 @@ def test_explicit_cors_origin_allows_only_configured_origin() -> None:
     probe.add_middleware(
         CORSMiddleware,
         allow_origins=parse_cors_allowed_origins("https://dashboard.example"),
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type", "X-Internal-Token"],
+        allow_methods=ALLOWED_CORS_METHODS,
+        allow_headers=ALLOWED_CORS_HEADERS,
     )
 
     @probe.get("/probe")
@@ -36,6 +37,27 @@ def test_explicit_cors_origin_allows_only_configured_origin() -> None:
     denied = client.get("/probe", headers={"Origin": "https://untrusted.example"})
     assert allowed.headers["access-control-allow-origin"] == "https://dashboard.example"
     assert "access-control-allow-origin" not in denied.headers
+
+
+def test_speaker_delete_route_preflight_is_allowed_for_configured_origin() -> None:
+    probe = FastAPI()
+    probe.include_router(speakers_router)
+    probe.add_middleware(
+        CORSMiddleware,
+        allow_origins=["https://dashboard.example"],
+        allow_methods=ALLOWED_CORS_METHODS,
+        allow_headers=ALLOWED_CORS_HEADERS,
+    )
+    response = TestClient(probe).options(
+        "/api/speakers/speaker-1",
+        headers={
+            "Origin": "https://dashboard.example",
+            "Access-Control-Request-Method": "DELETE",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://dashboard.example"
+    assert "DELETE" in response.headers["access-control-allow-methods"]
 
 
 @pytest.mark.parametrize("raw", ["*", "null", "file://dashboard", "https://ok.example,*"])
