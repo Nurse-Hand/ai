@@ -11,20 +11,44 @@ SBOM and license obligations must be reviewed before production deployment.
 - Exact wheel digest: see `requirements-ocr.txt` and `ocr-components.lock`.
 - Preserved notices: `licenses/Pillow-12.3.0-LICENSE.txt`.
 - Preserved PEP 770 inventory: `licenses/Pillow-12.3.0.cdx.json`.
+- Corresponding Pillow 12.3.0 source: official PyPI `pillow-12.3.0.tar.gz`, URL and
+  SHA-256 recorded in `ocr-components.lock`.
 
-The official wheel inventory includes bundled components under MIT-CMU, LGPL-2.1-or-later,
-GPL-3.0-or-later, FTL, MIT, BSD, IJG, libtiff, X11 and Zlib identifiers. In particular,
-`fribidi-shim`, `FriBiDi`, `libimagequant`, FreeType, libjpeg-turbo, libpng and zlib-related
-notices are retained in the upstream LICENSE and SBOM. Their actual inclusion/linkage and
-redistribution obligations must be evaluated against the built linux/amd64 image.
+### Included in the selected wheel
+
+- Pillow/PIL modules under MIT-CMU and the native libraries listed by the preserved
+  auditwheel SBOM and wheel file inventory.
+- Vendored raqm code under MIT and `fribidi-shim` under LGPL-2.1-or-later are compiled into
+  `_imagingft`; the LGPL-2.1-or-later full text is preserved at
+  `licenses/LGPL-2.1-or-later.txt`. This notice and corresponding source provenance do not
+  by themselves assert that every redistribution obligation has been discharged.
+
+### Optional runtime component
+
+- FriBiDi is loaded by the shim only when a compatible runtime library is available. The
+  fixed wheel archive does not contain a `libfribidi` shared library, and the OCR image must
+  keep the raqm feature unavailable.
+
+### Absent from the selected wheel
+
+- The fixed wheel archive contains no `libimagequant` shared library and no GPLv3
+  (`GPL-3.0-or-later`) libimagequant support. Pillow's official build documentation states that distributed
+  binaries do not enable libimagequant.
+- The fixed wheel archive contains no `libfribidi` shared library.
+
+The upstream package-level PEP 770 inventory also lists optional build components; it is not
+evidence that every listed component is bundled in the selected wheel. The wheel archive
+list, auditwheel SBOM, build feature checks and final `ldd` output are the controlling image
+evidence.
 
 ## Tesseract OCR 5.3.0
 
 - Binary package: Debian bookworm `tesseract-ocr=5.3.0-2` from the fixed snapshot.
 - Upstream license: Apache-2.0.
 - Preserved license: `licenses/Tesseract-5.3.0-LICENSE.txt`.
-- Runtime dependencies include `libtesseract5` and Leptonica (`liblept5`). Exact installed
-  versions are emitted to `/usr/share/nurse-hand-ocr-components.lock` during image build.
+- Runtime dependencies include exact `libtesseract5=5.3.0-2` and
+  Leptonica `liblept5=1.82.0-3+b3` pins. Installed versions are also emitted to
+  `/usr/share/nurse-hand-ocr-components.lock` during image build.
 - Debian copyright files and `/usr/share/common-licenses` are intentionally not deleted.
 
 ## English tessdata 4.1.0
