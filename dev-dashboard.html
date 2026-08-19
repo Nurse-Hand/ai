@@ -219,6 +219,25 @@
     <div class="result-panel" id="result-d"><span class="empty">아직 테스트 안 함</span></div>
   </div>
 
+  <!-- ⑤ 화자 등록/인식 -->
+  <div class="card">
+    <div class="card-head"><span class="emoji">🪪</span><h2>⑤ 화자 등록 &amp; 재인식</h2><span id="status-s" class="status pending">미확인</span></div>
+    <div class="port">POST /api/speakers/register-from-diarization · GET/DELETE /api/speakers</div>
+    <p class="desc">④에서 분석한 오디오 중 특정 화자(SPEAKER_00 등)를 이름으로 등록합니다. 등록 후 다른 오디오로 ④를 다시 돌리면 <b>bestMatch</b>에 이 이름이 뜨는지로 재인식을 확인할 수 있습니다.</p>
+    <div class="field-grid">
+      <div class="field wide"><label>등록할 오디오 파일</label><input type="file" id="reg-file" accept="audio/*" /></div>
+      <div class="field"><label>diarizedSpeaker</label><input id="reg-speakerLabel" value="SPEAKER_00" placeholder="④ 결과의 화자 구간 라벨" /></div>
+      <div class="field"><label>speakerId (고유값)</label><input id="reg-speakerId" value="patient-001" /></div>
+      <div class="field"><label>표시 이름</label><input id="reg-displayName" value="301호 김OO" /></div>
+    </div>
+    <div class="btn-row">
+      <button class="run" onclick="registerSpeaker()">▶ 이 화자로 등록</button>
+      <button class="ghost" onclick="listSpeakers()">🔄 등록된 화자 목록 새로고침</button>
+    </div>
+    <div class="result-panel" id="result-s"><span class="empty">아직 등록 안 함</span></div>
+    <div class="result-panel" id="result-s-list"><span class="empty">목록을 아직 불러오지 않음</span></div>
+  </div>
+
 </main>
 
 <script>
@@ -377,13 +396,61 @@ async function callDiarization() {
       ? `<div class="result-item">✅ 화자분리 정상 동작 — 총 ${j.totalSegments}개 구간, ${j.speakerMatches.length}명 화자</div>`
       : `<div class="result-item">⚠️ 화자분리 실패 → 전체를 화자 1명으로 처리 (fallback)</div>`;
     const segs = (j.segments || []).map(s => `<div class="segment-row"><span class="time">${s.startSec.toFixed(2)}s ~ ${s.endSec.toFixed(2)}s</span><span class="speaker">${s.diarizedSpeaker}</span></div>`).join('');
+    const matches = (j.speakerMatches || []).map(sm => {
+      const best = sm.bestMatch
+        ? `<b style="color:var(--ok)">✅ ${sm.bestMatch.displayName}</b> (유사도 ${sm.bestMatch.similarity.toFixed(3)})`
+        : `<span style="color:var(--muted)">등록된 화자와 매칭 안 됨 (미등록이거나 유사도 낮음)</span>`;
+      const cands = (sm.candidates || []).map(c => `${c.displayName} ${c.similarity.toFixed(3)}`).join(' · ');
+      return `<div class="result-item"><b>${sm.diarizedSpeaker}</b> (발화 ${sm.totalSpeechSec}초) → ${best}
+        ${cands ? `<div style="color:#666;margin-top:4px;font-size:11px;">후보: ${cands}</div>` : ''}</div>`;
+    }).join('');
     document.getElementById('result-d').innerHTML = avail
       + `<div class="result-item"><b>전사 텍스트</b><br/>${j.transcript?.text || ''}</div>`
-      + `<div class="result-item"><b>화자 구간</b>${segs}</div>` + rawDetails(j);
+      + `<div class="result-item"><b>화자별 등록 매칭</b></div>` + (matches || '<div class="result-item empty">화자 정보 없음</div>')
+      + `<div class="result-item"><b>화자 구간(시간)</b>${segs}</div>` + rawDetails(j);
   } catch (e) { document.getElementById('result-d').innerHTML = `<div class="result-item">❌ ${e.message}</div>`; setStatus('d', false); }
 }
 
-window.onload = () => { checkHealth(); refreshPreviews(); };
+// ── ⑤ 화자 등록 / 목록 ──
+async function registerSpeaker() {
+  const fileInput = document.getElementById('reg-file');
+  if (!fileInput.files.length) { alert('오디오 파일을 먼저 선택하세요'); return; }
+  const form = new FormData();
+  form.append('audio', fileInput.files[0]);
+  form.append('diarizedSpeaker', document.getElementById('reg-speakerLabel').value);
+  form.append('speakerId', document.getElementById('reg-speakerId').value);
+  form.append('displayName', document.getElementById('reg-displayName').value);
+  document.getElementById('result-s').innerHTML = `<span class="empty">등록 중... (분리+임베딩 추출이라 몇 초 걸릴 수 있음)</span>`;
+  try {
+    const r = await fetch(`${BASE}/api/speakers/register-from-diarization`, { method: 'POST', body: form });
+    const j = await r.json();
+    setStatus('s', r.ok);
+    if (!r.ok) { document.getElementById('result-s').innerHTML = `<div class="result-item">HTTP ${r.status} — ${JSON.stringify(j)}</div>`; return; }
+    document.getElementById('result-s').innerHTML = `<div class="result-item">✅ <b>${j.speaker.displayName}</b> (${j.speaker.speakerId}) 등록 완료
+      — 사용 구간 ${j.diarization.segmentCount}개 / ${j.diarization.totalSpeechSec}초, 임베딩 ${j.embedding.dimensions}차원(${j.embedding.backend})</div>` + rawDetails(j);
+    listSpeakers();
+  } catch (e) { document.getElementById('result-s').innerHTML = `<div class="result-item">❌ ${e.message}</div>`; setStatus('s', false); }
+}
+
+async function listSpeakers() {
+  try {
+    const r = await fetch(`${BASE}/api/speakers`);
+    const j = await r.json();
+    const rows = (j.speakers || []).map(sp => `
+      <div class="result-item">🪪 <b>${sp.displayName}</b> <span style="color:var(--muted)">(${sp.speakerId})</span>
+        <button class="ghost" style="float:right;padding:2px 10px;font-size:11px;" onclick="deleteSpeaker('${sp.speakerId}')">삭제</button>
+      </div>`).join('');
+    document.getElementById('result-s-list').innerHTML = `<div class="result-item">총 ${j.total}명 등록됨</div>` + (rows || '<div class="result-item empty">등록된 화자 없음</div>');
+  } catch (e) { document.getElementById('result-s-list').innerHTML = `<div class="result-item">❌ ${e.message}</div>`; }
+}
+
+async function deleteSpeaker(id) {
+  if (!confirm(`${id} 삭제할까요?`)) return;
+  await fetch(`${BASE}/api/speakers/${id}`, { method: 'DELETE' });
+  listSpeakers();
+}
+
+window.onload = () => { checkHealth(); refreshPreviews(); listSpeakers(); };
 </script>
 
 </body>
