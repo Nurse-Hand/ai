@@ -11,46 +11,93 @@ from fastapi import UploadFile
 from app.config import Settings
 
 
+class AudioTooLargeError(ValueError):
+    pass
+
+
+class AudioDecodeError(ValueError):
+    pass
+
+
+class AudioProcessingTimeoutError(TimeoutError):
+    pass
+
+
+class AudioToolUnavailableError(RuntimeError):
+    pass
+
+
 def safe_name(name: Optional[str]) -> str:
     if not name:
         return "audio.wav"
     return Path(name).name
 
 
-async def persist_upload(upload: UploadFile, dest_dir: Path) -> Path:
+async def persist_upload(
+    upload: UploadFile, dest_dir: Path, max_bytes: int | None = None
+) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
-    file_path = dest_dir / f"{uuid4()}-{safe_name(upload.filename)}"
-    with file_path.open("wb") as buffer:
-        while True:
-            chunk = await upload.read(1024 * 1024)
-            if not chunk:
-                break
-            buffer.write(chunk)
-    await upload.close()
+    file_path = dest_dir / f"{uuid4()}.upload"
+    total_bytes = 0
+    try:
+        with file_path.open("wb") as buffer:
+            while True:
+                chunk = await upload.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if max_bytes is not None and total_bytes > max_bytes:
+                    raise AudioTooLargeError("audio exceeds configured byte limit")
+                buffer.write(chunk)
+    finally:
+        await upload.close()
     return file_path
 
 
 def normalize_audio(input_path: Path, output_path: Path, settings: Settings) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [
-            settings.ffmpeg_bin,
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            str(input_path),
-            "-ac",
-            "1",
-            "-ar",
-            "16000",
-            "-c:a",
-            "pcm_s16le",
-            str(output_path),
-        ],
-        check=True,
-    )
+    try:
+        subprocess.run(
+            [
+                settings.ffmpeg_bin,
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(input_path),
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-c:a",
+                "pcm_s16le",
+                str(output_path),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=settings.audio_processing_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise AudioProcessingTimeoutError("audio normalization timed out") from error
+    except subprocess.CalledProcessError as error:
+        raise AudioDecodeError("audio decode failed") from error
+    except FileNotFoundError as error:
+        raise AudioToolUnavailableError("audio normalization tool unavailable") from error
+
+
+def cleanup_job_dir(job_dir: Path, attempts: int) -> bool:
+    for _ in range(max(1, attempts)):
+        try:
+            shutil.rmtree(job_dir)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            continue
+        if not job_dir.exists():
+            return True
+    return not job_dir.exists()
 
 
 def read_audio_mono(audio_path: Path) -> tuple[np.ndarray, int]:

@@ -23,3 +23,4 @@ artifacts
 tests
 e2e_test.py
 dev-dashboard.html
+README.md

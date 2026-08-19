@@ -101,7 +101,9 @@ def test_ocr_api_runtime_versions_are_isolated_and_fixed() -> None:
     assert version("starlette") == "1.6.0"
     assert version("python-multipart") == "0.0.32"
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    assert "COPY requirements.txt requirements-ocr-api.txt requirements-ocr.txt ./" in dockerfile
+    assert "COPY requirements.txt requirements-ai.txt requirements-ocr-api.txt requirements-ocr.txt ./" in dockerfile
+    assert "torch==2.11.0 torchaudio==2.11.0" in dockerfile
+    assert "pip install --no-cache-dir -r requirements-ai.txt" in dockerfile
     assert "pip install --no-cache-dir -r requirements-ocr-api.txt" in dockerfile
 
 

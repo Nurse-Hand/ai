@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
 
 from app.auth import InternalAuthError, require_internal_token
+from app.config import Settings, get_settings
 from app.schedule_ocr.engine import TesseractCellOcrEngine
 from app.schedule_ocr.errors import ScheduleOcrError, engine_busy
 from app.schedule_ocr.multipart import ScheduleOcrMultipartRequest, parse_schedule_ocr_form
@@ -60,9 +61,10 @@ async def verify_schedule_ocr_token(
         str | None,
         Header(alias="X-Internal-Token", include_in_schema=False),
     ] = None,
+    settings: Settings = Depends(get_settings),
 ) -> None:
     try:
-        require_internal_token(x_internal_token)
+        require_internal_token(x_internal_token, settings.internal_token)
     except InternalAuthError as exc:
         if exc.status_code == 503:
             raise ScheduleOcrError(

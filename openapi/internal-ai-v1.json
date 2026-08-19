@@ -1,0 +1,1605 @@
+{
+  "components": {
+    "schemas": {
+      "AnalyzeAudioResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "diarizedSpeakers": {
+            "items": {
+              "$ref": "#/components/schemas/AudioDiarizedSpeaker"
+            },
+            "maxItems": 1000,
+            "title": "Diarizedspeakers",
+            "type": "array"
+          },
+          "sourceAudioFileId": {
+            "format": "uuid",
+            "title": "Sourceaudiofileid",
+            "type": "string"
+          },
+          "transcript": {
+            "$ref": "#/components/schemas/AudioTranscript"
+          },
+          "utterances": {
+            "items": {
+              "$ref": "#/components/schemas/AudioUtterance"
+            },
+            "maxItems": 100000,
+            "title": "Utterances",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sourceAudioFileId",
+          "transcript",
+          "utterances",
+          "diarizedSpeakers"
+        ],
+        "title": "AnalyzeAudioResponse",
+        "type": "object"
+      },
+      "AudioDiarizedSpeaker": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/AudioSpeakerCandidate"
+            },
+            "maxItems": 3,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "speakerLabel": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Speakerlabel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speakerLabel",
+          "candidates"
+        ],
+        "title": "AudioDiarizedSpeaker",
+        "type": "object"
+      },
+      "AudioSpeakerCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Displayname",
+            "type": "string"
+          },
+          "similarity": {
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Similarity",
+            "type": "number"
+          },
+          "speakerId": {
+            "format": "uuid",
+            "title": "Speakerid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speakerId",
+          "displayName",
+          "similarity"
+        ],
+        "title": "AudioSpeakerCandidate",
+        "type": "object"
+      },
+      "AudioTranscript": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "language": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Language",
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Provider",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 1000000,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "language",
+          "text"
+        ],
+        "title": "AudioTranscript",
+        "type": "object"
+      },
+      "AudioUtterance": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "endedAtMs": {
+            "minimum": 0.0,
+            "title": "Endedatms",
+            "type": "integer"
+          },
+          "sourceAudioFileId": {
+            "format": "uuid",
+            "title": "Sourceaudiofileid",
+            "type": "string"
+          },
+          "speakerLabel": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Speakerlabel",
+            "type": "string"
+          },
+          "startedAtMs": {
+            "minimum": 0.0,
+            "title": "Startedatms",
+            "type": "integer"
+          },
+          "text": {
+            "maxLength": 100000,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speakerLabel",
+          "startedAtMs",
+          "endedAtMs",
+          "text",
+          "sourceAudioFileId"
+        ],
+        "title": "AudioUtterance",
+        "type": "object"
+      },
+      "Body_analyze_audio_internal_v1_audio_analyze_post": {
+        "properties": {
+          "audio": {
+            "contentMediaType": "application/octet-stream",
+            "title": "Audio",
+            "type": "string"
+          },
+          "sourceAudioFileId": {
+            "format": "uuid",
+            "title": "Sourceaudiofileid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "audio",
+          "sourceAudioFileId"
+        ],
+        "title": "Body_analyze_audio_internal_v1_audio_analyze_post",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "EvidenceReference": {
+        "additionalProperties": false,
+        "properties": {
+          "patientId": {
+            "format": "uuid",
+            "title": "Patientid",
+            "type": "string"
+          },
+          "sourceId": {
+            "format": "uuid",
+            "title": "Sourceid",
+            "type": "string"
+          },
+          "sourceType": {
+            "enum": [
+              "TIMELINE_EVENT",
+              "TASK"
+            ],
+            "title": "Sourcetype",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourceType",
+          "sourceId",
+          "patientId"
+        ],
+        "title": "EvidenceReference",
+        "type": "object"
+      },
+      "ExtractTasksRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/TaskExtractionEvidence"
+            },
+            "maxItems": 1000,
+            "title": "Evidence",
+            "type": "array"
+          },
+          "requestId": {
+            "format": "uuid",
+            "title": "Requestid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "evidence"
+        ],
+        "title": "ExtractTasksRequest",
+        "type": "object"
+      },
+      "ExtractTasksResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractedTaskCandidate"
+            },
+            "maxItems": 50,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "requestId": {
+            "format": "uuid",
+            "title": "Requestid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "candidates"
+        ],
+        "title": "ExtractTasksResponse",
+        "type": "object"
+      },
+      "ExtractedTaskCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "candidateKey": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+            "title": "Candidatekey",
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ],
+            "title": "Confidence",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 0,
+                "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "dueAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dueat"
+          },
+          "evidenceSourceIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Evidencesourceids",
+            "type": "array"
+          },
+          "patientId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patientid"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidateKey",
+          "patientId",
+          "title",
+          "description",
+          "dueAt",
+          "evidenceSourceIds",
+          "confidence"
+        ],
+        "title": "ExtractedTaskCandidate",
+        "type": "object"
+      },
+      "GenerateHandoffRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "includeUnverified": {
+            "title": "Includeunverified",
+            "type": "boolean"
+          },
+          "patients": {
+            "items": {
+              "$ref": "#/components/schemas/HandoffPatientSnapshot"
+            },
+            "maxItems": 1000,
+            "title": "Patients",
+            "type": "array"
+          },
+          "precheckItems": {
+            "items": {
+              "$ref": "#/components/schemas/HandoffPrecheckItem"
+            },
+            "maxItems": 1000,
+            "title": "Precheckitems",
+            "type": "array"
+          },
+          "requestId": {
+            "format": "uuid",
+            "title": "Requestid",
+            "type": "string"
+          },
+          "templateId": {
+            "const": "NURSING_HANDOFF_V1",
+            "title": "Templateid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "templateId",
+          "includeUnverified",
+          "patients",
+          "precheckItems"
+        ],
+        "title": "GenerateHandoffRequest",
+        "type": "object"
+      },
+      "GenerateHandoffResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contractVersion": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$",
+            "title": "Contractversion",
+            "type": "string"
+          },
+          "generatedAt": {
+            "format": "date-time",
+            "title": "Generatedat",
+            "type": "string"
+          },
+          "modelVersion": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$",
+            "title": "Modelversion",
+            "type": "string"
+          },
+          "patients": {
+            "items": {
+              "$ref": "#/components/schemas/HandoffPatientDraft"
+            },
+            "maxItems": 1000,
+            "title": "Patients",
+            "type": "array"
+          },
+          "requestId": {
+            "format": "uuid",
+            "title": "Requestid",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/HandoffWarning"
+            },
+            "maxItems": 1000,
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "requestId",
+          "modelVersion",
+          "contractVersion",
+          "generatedAt",
+          "patients",
+          "warnings"
+        ],
+        "title": "GenerateHandoffResponse",
+        "type": "object"
+      },
+      "HandoffPatientDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "patientId": {
+            "format": "uuid",
+            "title": "Patientid",
+            "type": "string"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/HandoffSection"
+            },
+            "maxItems": 6,
+            "minItems": 6,
+            "title": "Sections",
+            "type": "array"
+          }
+        },
+        "required": [
+          "patientId",
+          "sections"
+        ],
+        "title": "HandoffPatientDraft",
+        "type": "object"
+      },
+      "HandoffPatientSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "patientId": {
+            "format": "uuid",
+            "title": "Patientid",
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotTask"
+            },
+            "maxItems": 1000,
+            "title": "Tasks",
+            "type": "array"
+          },
+          "timelineEvents": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineEvent"
+            },
+            "maxItems": 1000,
+            "title": "Timelineevents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "patientId",
+          "timelineEvents",
+          "tasks"
+        ],
+        "title": "HandoffPatientSnapshot",
+        "type": "object"
+      },
+      "HandoffPrecheckItem": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NO_ISSUE",
+                  "INCLUDE_HANDOFF",
+                  "UNVERIFIED",
+                  "NOT_APPLICABLE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceReference"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Evidence",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+            "title": "Question",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "CRITICAL",
+              "RECOMMENDED"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "severity",
+          "question",
+          "answer",
+          "evidence"
+        ],
+        "title": "HandoffPrecheckItem",
+        "type": "object"
+      },
+      "HandoffPrecheckRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "patients": {
+            "items": {
+              "$ref": "#/components/schemas/HandoffPatientSnapshot"
+            },
+            "maxItems": 1000,
+            "title": "Patients",
+            "type": "array"
+          },
+          "requestId": {
+            "format": "uuid",
+            "title": "Requestid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "patients"
+        ],
+        "title": "HandoffPrecheckRequest",
+        "type": "object"
+      },
+      "HandoffPrecheckResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contractVersion": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$",
+            "title": "Contractversion",
+            "type": "string"
+          },
+          "generatedAt": {
+            "format": "date-time",
+            "title": "Generatedat",
+            "type": "string"
+          },
+          "modelVersion": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$",
+            "title": "Modelversion",
+            "type": "string"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/HandoffQuestion"
+            },
+            "maxItems": 1000,
+            "title": "Questions",
+            "type": "array"
+          },
+          "requestId": {
+            "format": "uuid",
+            "title": "Requestid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "modelVersion",
+          "contractVersion",
+          "generatedAt",
+          "questions"
+        ],
+        "title": "HandoffPrecheckResponse",
+        "type": "object"
+      },
+      "HandoffQuestion": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceReference"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Evidence",
+            "type": "array"
+          },
+          "patientId": {
+            "format": "uuid",
+            "title": "Patientid",
+            "type": "string"
+          },
+          "prompt": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+            "title": "Prompt",
+            "type": "string"
+          },
+          "questionKey": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Questionkey",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+            "title": "Reason",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "CRITICAL",
+              "RECOMMENDED"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "questionKey",
+          "patientId",
+          "severity",
+          "prompt",
+          "reason",
+          "evidence"
+        ],
+        "title": "HandoffQuestion",
+        "type": "object"
+      },
+      "HandoffSection": {
+        "additionalProperties": false,
+        "properties": {
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceReference"
+            },
+            "maxItems": 1000,
+            "title": "Citations",
+            "type": "array"
+          },
+          "content": {
+            "maxLength": 5000,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+            "title": "Content",
+            "type": "string"
+          },
+          "section": {
+            "enum": [
+              "PATIENT_STATUS",
+              "PAIN",
+              "TREATMENT",
+              "DIET",
+              "ACTIVITY",
+              "OBSERVATION"
+            ],
+            "title": "Section",
+            "type": "string"
+          }
+        },
+        "required": [
+          "section",
+          "content",
+          "citations"
+        ],
+        "title": "HandoffSection",
+        "type": "object"
+      },
+      "HandoffWarning": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "UNVERIFIED_INFORMATION",
+            "title": "Code",
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceReference"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Evidence",
+            "type": "array"
+          },
+          "itemId": {
+            "format": "uuid",
+            "title": "Itemid",
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+            "title": "Message",
+            "type": "string"
+          },
+          "patientId": {
+            "format": "uuid",
+            "title": "Patientid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "itemId",
+          "patientId",
+          "message",
+          "evidence"
+        ],
+        "title": "HandoffWarning",
+        "type": "object"
+      },
+      "PrioritizeTasksRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractedTaskCandidate"
+            },
+            "maxItems": 50,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "requestId": {
+            "format": "uuid",
+            "title": "Requestid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "candidates"
+        ],
+        "title": "PrioritizeTasksRequest",
+        "type": "object"
+      },
+      "PrioritizeTasksResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "requestId": {
+            "format": "uuid",
+            "title": "Requestid",
+            "type": "string"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/TaskPrioritySuggestion"
+            },
+            "maxItems": 50,
+            "title": "Suggestions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "requestId",
+          "suggestions"
+        ],
+        "title": "PrioritizeTasksResponse",
+        "type": "object"
+      },
+      "SnapshotTask": {
+        "additionalProperties": false,
+        "properties": {
+          "dueAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dueat"
+          },
+          "effectivePriority": {
+            "enum": [
+              "CRITICAL",
+              "HIGH",
+              "NORMAL"
+            ],
+            "title": "Effectivepriority",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "sourceReferences": {
+            "items": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Sourcereferences",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "dueAt",
+          "effectivePriority",
+          "version",
+          "sourceReferences"
+        ],
+        "title": "SnapshotTask",
+        "type": "object"
+      },
+      "TaskExtractionEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "patientId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patientid"
+          },
+          "recordId": {
+            "format": "uuid",
+            "title": "Recordid",
+            "type": "string"
+          },
+          "sourceId": {
+            "format": "uuid",
+            "title": "Sourceid",
+            "type": "string"
+          },
+          "sourceType": {
+            "enum": [
+              "TIMELINE_EVENT",
+              "TASK"
+            ],
+            "title": "Sourcetype",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+            "title": "Summary",
+            "type": "string"
+          },
+          "workDate": {
+            "format": "date-time",
+            "title": "Workdate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "recordId",
+          "sourceType",
+          "sourceId",
+          "patientId",
+          "workDate",
+          "summary"
+        ],
+        "title": "TaskExtractionEvidence",
+        "type": "object"
+      },
+      "TaskPrioritySuggestion": {
+        "additionalProperties": false,
+        "properties": {
+          "candidateKey": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+            "title": "Candidatekey",
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ],
+            "title": "Confidence",
+            "type": "string"
+          },
+          "evidenceSourceIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Evidencesourceids",
+            "type": "array"
+          },
+          "reasons": {
+            "items": {
+              "maxLength": 500,
+              "minLength": 1,
+              "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Reasons",
+            "type": "array"
+          },
+          "suggestedPriority": {
+            "enum": [
+              "CRITICAL",
+              "HIGH",
+              "NORMAL"
+            ],
+            "title": "Suggestedpriority",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidateKey",
+          "suggestedPriority",
+          "reasons",
+          "confidence",
+          "evidenceSourceIds"
+        ],
+        "title": "TaskPrioritySuggestion",
+        "type": "object"
+      },
+      "TimelineEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
+          "sourceReference": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+            "title": "Sourcereference",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+            "title": "Summary",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "OBSERVATION",
+              "MEDICATION",
+              "PROCEDURE",
+              "REPORT",
+              "TASK"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "occurredAt",
+          "type",
+          "summary",
+          "sourceReference"
+        ],
+        "title": "TimelineEvent",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "in": "header",
+        "name": "X-Internal-Token",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "title": "Nurse Hand Internal AI API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/internal/v1/audio/analyze": {
+      "post": {
+        "operationId": "analyze_audio_internal_v1_audio_analyze_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_analyze_audio_internal_v1_audio_analyze_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyzeAudioResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Analyze Audio",
+        "tags": [
+          "internal-audio"
+        ]
+      }
+    },
+    "/internal/v1/handoffs/generate": {
+      "post": {
+        "operationId": "generate_handoff_internal_v1_handoffs_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateHandoffRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateHandoffResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Generate Handoff",
+        "tags": [
+          "internal-handoffs"
+        ]
+      }
+    },
+    "/internal/v1/handoffs/precheck": {
+      "post": {
+        "operationId": "precheck_handoff_internal_v1_handoffs_precheck_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandoffPrecheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandoffPrecheckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Precheck Handoff",
+        "tags": [
+          "internal-handoffs"
+        ]
+      }
+    },
+    "/internal/v1/tasks/extract": {
+      "post": {
+        "operationId": "extract_tasks_internal_v1_tasks_extract_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractTasksRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractTasksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Extract Tasks",
+        "tags": [
+          "internal-tasks"
+        ]
+      }
+    },
+    "/internal/v1/tasks/prioritize": {
+      "post": {
+        "operationId": "prioritize_tasks_internal_v1_tasks_prioritize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrioritizeTasksRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrioritizeTasksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Prioritize Tasks",
+        "tags": [
+          "internal-tasks"
+        ]
+      }
+    }
+  }
+}

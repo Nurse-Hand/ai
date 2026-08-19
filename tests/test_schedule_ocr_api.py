@@ -23,12 +23,20 @@ from app.routers.schedule_ocr import (
     router,
     schedule_ocr_error_handler,
 )
+from app.config import get_settings
 from app.schedule_ocr.engine import OcrCandidate
 from app.schedule_ocr.errors import ScheduleOcrError
 from app.schedule_ocr.service import ScheduleOcrService
 from scripts.generate_schedule_ocr_openapi import contract_schema
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def clear_shared_settings_cache():
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 class FakeEngine:
@@ -128,7 +136,8 @@ def unsupported_png() -> bytes:
 
 
 def client() -> TestClient:
-    os.environ["INTERNAL_API_TOKEN"] = "test-token"
+    os.environ["INTERNAL_TOKEN"] = "test-token"
+    get_settings.cache_clear()
     app = FastAPI()
     app.include_router(router)
     app.add_exception_handler(ScheduleOcrError, schedule_ocr_error_handler)
@@ -176,7 +185,8 @@ def test_success_wire_contract() -> None:
 
 def test_inference_runs_off_event_loop_and_capacity_is_fail_fast() -> None:
     async def exercise() -> None:
-        os.environ["INTERNAL_API_TOKEN"] = "test-token"
+        os.environ["INTERNAL_TOKEN"] = "test-token"
+        get_settings.cache_clear()
         app = FastAPI()
         app.include_router(router)
         app.add_exception_handler(ScheduleOcrError, schedule_ocr_error_handler)

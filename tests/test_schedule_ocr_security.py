@@ -2,15 +2,24 @@ import asyncio
 import hashlib
 from io import BytesIO
 import json
+import pytest
 
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
 from app.routers.schedule_ocr import get_schedule_ocr_service
+from app.config import get_settings
 from app.schedule_ocr.body_limit import ScheduleOcrBodyLimitMiddleware
 from app.schedule_ocr.engine import OcrCandidate
 from app.schedule_ocr.service import ScheduleOcrService
 from main import app
+
+
+@pytest.fixture(autouse=True)
+def clear_shared_settings_cache():
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 class FakeEngine:
@@ -53,7 +62,7 @@ def request_parts(row_index: str = "3") -> tuple[dict, dict]:
 
 
 def test_main_app_actual_post_auth_success_and_body_coercion(monkeypatch) -> None:
-    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-token")
+    monkeypatch.setenv("INTERNAL_TOKEN", "test-token")
     app.dependency_overrides[get_schedule_ocr_service] = fake_service
     try:
         client = TestClient(app)
@@ -78,20 +87,21 @@ def test_main_app_actual_post_auth_success_and_body_coercion(monkeypatch) -> Non
 
 def test_main_app_auth_errors_are_stable_and_hide_setting_name(monkeypatch) -> None:
     client = TestClient(app)
-    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-token")
+    monkeypatch.setenv("INTERNAL_TOKEN", "test-token")
     unauthorized = client.post("/internal/v1/schedules/ocr")
     assert unauthorized.status_code == 401
     assert unauthorized.json()["error"]["code"] == "SCHEDULE_OCR_UNAUTHORIZED"
 
-    monkeypatch.delenv("INTERNAL_API_TOKEN")
+    monkeypatch.delenv("INTERNAL_TOKEN")
+    get_settings.cache_clear()
     unavailable = client.post("/internal/v1/schedules/ocr")
     assert unavailable.status_code == 503
     assert unavailable.json()["error"]["code"] == "SCHEDULE_OCR_AUTH_UNAVAILABLE"
-    assert "INTERNAL_API_TOKEN" not in unavailable.text
+    assert "INTERNAL_TOKEN" not in unavailable.text
 
 
 def test_route_retains_image_byte_limit_below_multipart_limit(monkeypatch) -> None:
-    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-token")
+    monkeypatch.setenv("INTERNAL_TOKEN", "test-token")
     app.dependency_overrides[get_schedule_ocr_service] = fake_service
     oversized_image = b"\x89PNG\r\n\x1a\n" + b"0" * (10 * 1024 * 1024)
     try:
@@ -111,7 +121,7 @@ def test_route_retains_image_byte_limit_below_multipart_limit(monkeypatch) -> No
 
 
 def test_main_app_malformed_multipart_has_stable_error_envelope(monkeypatch) -> None:
-    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-token")
+    monkeypatch.setenv("INTERNAL_TOKEN", "test-token")
     client = TestClient(app)
     headers = {"X-Internal-Token": "test-token"}
 
@@ -143,7 +153,7 @@ def test_main_app_malformed_multipart_has_stable_error_envelope(monkeypatch) -> 
 
 
 def test_main_app_extra_field_and_oversize_errors_match_openapi_schema(monkeypatch) -> None:
-    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-token")
+    monkeypatch.setenv("INTERNAL_TOKEN", "test-token")
     app.dependency_overrides[get_schedule_ocr_service] = fake_service
     try:
         client = TestClient(app)
