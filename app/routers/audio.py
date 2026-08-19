@@ -1,5 +1,5 @@
 import asyncio
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 import logging
 import threading
 from uuid import UUID, uuid4
@@ -32,59 +32,111 @@ from app.services.diarization import DiarizationService
 from app.services.transcription import TranscriptionService
 
 logger = logging.getLogger(__name__)
-# Process-scoped by design: app lifespan observes this pool but never shuts it
-# down, so concurrent Future callbacks survive event-loop teardown and own cleanup.
-_diarization_executor = ThreadPoolExecutor(
-    max_workers=4, thread_name_prefix="internal-audio-diarization"
-)
+_audio_worker_capacity = get_settings().audio_worker_capacity
+_audio_worker_slots = threading.BoundedSemaphore(_audio_worker_capacity)
 _audio_workers: set[Future] = set()
 _audio_workers_lock = threading.Lock()
 
 
-def _discard_audio_worker(worker: Future) -> None:
+def _audio_worker_count() -> int:
     with _audio_workers_lock:
-        _audio_workers.discard(worker)
+        return len(_audio_workers)
 
 
-def _submit_diarization_worker(diarization_service, normalized_path) -> Future:
-    worker = _diarization_executor.submit(diarization_service.analyze, normalized_path)
+def _try_accept_audio_analysis() -> Future | None:
+    if not _audio_worker_slots.acquire(blocking=False):
+        return None
+    worker: Future = Future()
     with _audio_workers_lock:
         _audio_workers.add(worker)
-    worker.add_done_callback(_discard_audio_worker)
     return worker
 
 
-def _cleanup_after_audio_worker(
-    worker: Future, job_dir, cleanup_attempts: int
+def _run_diarization_worker(worker: Future, diarization_service, normalized_path) -> None:
+    if not worker.set_running_or_notify_cancel():
+        return
+    try:
+        result = diarization_service.analyze(normalized_path)
+    except BaseException as error:
+        worker.set_exception(error)
+    else:
+        worker.set_result(result)
+
+
+def _start_diarization_worker(
+    worker: Future, diarization_service, normalized_path
+) -> bool:
+    thread = threading.Thread(
+        target=_run_diarization_worker,
+        args=(worker, diarization_service, normalized_path),
+        name="internal-audio-diarization",
+        daemon=True,
+    )
+    try:
+        thread.start()
+    except Exception as error:
+        worker.set_exception(error)
+        return False
+    return True
+
+
+def _consume_asyncio_worker_result(worker: asyncio.Future) -> None:
+    if worker.cancelled():
+        return
+    try:
+        worker.exception()
+    except BaseException:
+        pass
+
+
+def _complete_audio_analysis(
+    worker: Future,
+    job_dir,
+    cleanup_attempts: int,
+    cleanup_state: dict[str, bool],
 ) -> None:
     try:
-        worker.result()
-    except Exception:
-        logger.warning("Internal audio background worker failed.")
-    finally:
-        if not cleanup_job_dir(job_dir, cleanup_attempts):
+        try:
+            worker.result()
+        except BaseException:
+            logger.warning("Internal audio background worker failed.")
+        try:
+            cleanup_state["ok"] = cleanup_job_dir(job_dir, cleanup_attempts)
+        except Exception:
+            cleanup_state["ok"] = False
+        if not cleanup_state["ok"]:
             logger.error("Internal audio background cleanup failed.")
+    finally:
+        with _audio_workers_lock:
+            _audio_workers.discard(worker)
+        _audio_worker_slots.release()
 
 
-def _defer_cleanup_to_audio_worker(
-    worker: Future, job_dir, cleanup_attempts: int
+def _attach_audio_completion(
+    worker: Future,
+    job_dir,
+    cleanup_attempts: int,
+    cleanup_state: dict[str, bool],
 ) -> None:
     worker.add_done_callback(
-        lambda completed: _cleanup_after_audio_worker(
-            completed, job_dir, cleanup_attempts
+        lambda completed: _complete_audio_analysis(
+            completed,
+            job_dir,
+            cleanup_attempts,
+            cleanup_state,
         )
     )
 
 
 async def drain_audio_workers(timeout_seconds: float = 5.0) -> None:
-    with _audio_workers_lock:
-        workers = tuple(_audio_workers)
-    if not workers:
-        return
-    wrapped = tuple(asyncio.wrap_future(worker) for worker in workers)
-    _, pending = await asyncio.wait(wrapped, timeout=timeout_seconds)
-    if pending:
-        logger.warning("Internal audio background cleanup is still pending at shutdown.")
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max(0.0, timeout_seconds)
+    while _audio_worker_count():
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            logger.warning("Internal audio background cleanup is still pending at shutdown.")
+            return
+        await asyncio.sleep(min(0.05, remaining))
 
 
 def enforce_audio_request_size(
@@ -124,9 +176,14 @@ async def analyze_audio(
     if not audio.content_type or not audio.content_type.startswith("audio/"):
         raise HTTPException(status_code=422, detail={"code": "INVALID_INPUT"})
 
+    analysis_worker = _try_accept_audio_analysis()
+    if analysis_worker is None:
+        raise InferenceFailure(InferenceFailureCode.UNAVAILABLE)
+
     job_dir = settings.tmp_dir / f"internal-analyze-{uuid4()}"
-    diarization_worker: Future | None = None
-    cleanup_deferred = False
+    worker_started = False
+    completion_attached = False
+    cleanup_state: dict[str, bool] = {}
     try:
         uploaded_path = await persist_upload(
             audio, job_dir, max_bytes=settings.audio_max_upload_bytes
@@ -137,21 +194,25 @@ async def analyze_audio(
             transcription_service.transcribe(normalized_path),
             timeout=settings.audio_processing_timeout_seconds,
         )
-        diarization_worker = _submit_diarization_worker(
-            diarization_service, normalized_path
+        worker_started = _start_diarization_worker(
+            analysis_worker, diarization_service, normalized_path
         )
-        wrapped_worker = asyncio.wrap_future(diarization_worker)
+        wrapped_worker = asyncio.wrap_future(analysis_worker)
+        wrapped_worker.add_done_callback(_consume_asyncio_worker_result)
         try:
             diarization_available, segments = await asyncio.wait_for(
                 asyncio.shield(wrapped_worker),
                 timeout=settings.audio_processing_timeout_seconds,
             )
         except asyncio.TimeoutError as error:
-            if not diarization_worker.done():
-                _defer_cleanup_to_audio_worker(
-                    diarization_worker, job_dir, settings.audio_cleanup_attempts
+            if not analysis_worker.done():
+                _attach_audio_completion(
+                    analysis_worker,
+                    job_dir,
+                    settings.audio_cleanup_attempts,
+                    cleanup_state,
                 )
-                cleanup_deferred = True
+                completion_attached = True
             raise InferenceFailure(InferenceFailureCode.TIMEOUT) from error
         if transcript.provider == "none" or not diarization_available:
             raise InferenceFailure(InferenceFailureCode.UNAVAILABLE)
@@ -209,17 +270,15 @@ async def analyze_audio(
     except Exception as error:
         raise InferenceFailure(InferenceFailureCode.UNAVAILABLE) from error
     finally:
-        if (
-            diarization_worker is not None
-            and not diarization_worker.done()
-            and not cleanup_deferred
-        ):
-            _defer_cleanup_to_audio_worker(
-                diarization_worker, job_dir, settings.audio_cleanup_attempts
+        if not completion_attached:
+            _attach_audio_completion(
+                analysis_worker,
+                job_dir,
+                settings.audio_cleanup_attempts,
+                cleanup_state,
             )
-            cleanup_deferred = True
-        if not cleanup_deferred and not cleanup_job_dir(
-            job_dir, settings.audio_cleanup_attempts
-        ):
-            logger.error("Internal audio temporary cleanup failed.")
+            completion_attached = True
+        if not worker_started and not analysis_worker.done():
+            analysis_worker.set_result(None)
+        if cleanup_state.get("ok") is False:
             raise InferenceFailure(InferenceFailureCode.UNAVAILABLE)

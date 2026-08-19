@@ -45,6 +45,9 @@ Audio는 `multipart/form-data`의 `audio`와 `sourceAudioFileId`를 받는다. �
 Node Audio Port와 profile 입력 계약이 없는 현재 Adapter에서는 후보 조회가 비활성이고 빈 배열을
 반환할 수 있다. Python JSON profile 저장을 이 경로에 연결하지 않으며 자동 확정 필드도 없다.
 처리가 끝나면 내부 임시 파일을 검증하며 삭제하고, 삭제 실패 시 성공을 반환하지 않는다.
+blocking diarization은 queue 없이 최대 `AUDIO_WORKER_CAPACITY`개만 수락한다. process 종료 시
+daemon worker가 남긴 residue는 컨테이너 비영속 `TMP_DIR`에만 존재할 수 있으며, host-persistent
+volume을 연결하는 배포는 현재 계약에서 지원하지 않는다.
 
 ## 오류
 
@@ -69,10 +72,11 @@ Node Audio Port와 profile 입력 계약이 없는 현재 Adapter에서는 후�
 | `AI_TIMEOUT_SECONDS` | OpenAI timeout, 기본 30초 |
 | `DEEPGRAM_API_KEY` | STT provider |
 | `PYANNOTE_AUTH_TOKEN` | diarization model token |
-| `TMP_DIR` | 요청 처리 중에만 사용하는 임시 파일 경로 |
+| `TMP_DIR` | 요청 처리 중에만 사용하는 비영속 임시 경로. 컨테이너 host volume mount 금지 |
 | `AUDIO_MAX_UPLOAD_BYTES` | audio file byte 상한, 기본 25 MiB |
 | `AUDIO_MAX_REQUEST_BYTES` | multipart request byte 상한, 기본 26 MiB |
 | `AUDIO_PROCESSING_TIMEOUT_SECONDS` | ffmpeg/STT/diarization timeout, 기본 120초 |
+| `AUDIO_WORKER_CAPACITY` | 동시 blocking diarization 상한, 기본 4. 초과 요청은 queue 없이 `503` |
 
 ## 로컬 실행과 검증
 

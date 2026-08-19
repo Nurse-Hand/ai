@@ -2,6 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +29,7 @@ class Settings(BaseSettings):
     audio_max_request_bytes: int = 26 * 1024 * 1024
     audio_processing_timeout_seconds: float = 120.0
     audio_cleanup_attempts: int = 3
+    audio_worker_capacity: int = Field(default=4, ge=1, le=32)
 
     # 업무/인수인계 AI 판단 로직
     openai_api_key: Optional[str] = None

@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import suppress
 from io import BytesIO
+from pathlib import Path
 import threading
 import time
 from types import SimpleNamespace
@@ -350,6 +351,113 @@ def test_blocking_diarization_timeout_tracks_worker_before_cleanup(
     assert "SENSITIVE_RAW_PATH_AND_PAYLOAD" not in caplog.text
 
 
+class SaturatingDiarizationService:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.release = threading.Event()
+        self.all_finished = threading.Event()
+        self.lock = threading.Lock()
+        self.started = 0
+        self.finished = 0
+        self.daemon_flags = []
+
+    def analyze(self, _path):
+        with self.lock:
+            self.started += 1
+            self.daemon_flags.append(threading.current_thread().daemon)
+        self.release.wait(timeout=2)
+        with self.lock:
+            self.finished += 1
+            if self.finished == self.capacity:
+                self.all_finished.set()
+        return True, [RawSegment(0.0, 1.25, "SPEAKER_00")]
+
+
+def test_audio_worker_capacity_has_no_queue_and_recovers_permits(
+    client, auth_headers, monkeypatch, tmp_path
+):
+    assert not hasattr(audio_router, "_diarization_executor")
+    assert audio_router._audio_worker_count() == 0
+    capacity = audio_router._audio_worker_capacity
+    service = SaturatingDiarizationService(capacity)
+    settings = Settings(
+        internal_token="test-internal-token",
+        tmp_dir=tmp_path,
+        audio_processing_timeout_seconds=0.01,
+    )
+    install_fakes(monkeypatch)
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_diarization_service] = lambda: service
+
+    real_cleanup = audio_router.cleanup_job_dir
+    tracking_during_cleanup = []
+
+    def observed_cleanup(job_dir, attempts):
+        tracking_during_cleanup.append(audio_router._audio_worker_count())
+        return real_cleanup(job_dir, attempts)
+
+    monkeypatch.setattr(audio_router, "cleanup_job_dir", observed_cleanup)
+    for expected in range(1, capacity + 1):
+        response = client.post(
+            "/internal/v1/audio/analyze",
+            headers=auth_headers,
+            data={"sourceAudioFileId": SOURCE_FILE_ID},
+            files={"audio": ("synthetic.wav", b"synthetic", "audio/wav")},
+        )
+        assert response.status_code == 504
+        assert audio_router._audio_worker_count() == expected
+
+    before_dirs = set(tmp_path.glob("internal-analyze-*"))
+    assert len(before_dirs) == capacity
+    started_at = time.perf_counter()
+    rejected = client.post(
+        "/internal/v1/audio/analyze",
+        headers=auth_headers,
+        data={"sourceAudioFileId": SOURCE_FILE_ID},
+        files={"audio": ("rejected.wav", b"rejected", "audio/wav")},
+    )
+    assert time.perf_counter() - started_at < 0.2
+    assert rejected.status_code == 503
+    assert rejected.json()["error"]["code"] == "AI_UPSTREAM_UNAVAILABLE"
+    assert set(tmp_path.glob("internal-analyze-*")) == before_dirs
+    assert audio_router._audio_worker_count() == capacity
+
+    started_at = time.perf_counter()
+    asyncio.run(audio_router.drain_audio_workers(timeout_seconds=0.001))
+    assert time.perf_counter() - started_at < 0.2
+    assert audio_router._audio_worker_count() == capacity
+    assert set(tmp_path.glob("internal-analyze-*")) == before_dirs
+
+    service.release.set()
+    assert service.all_finished.wait(timeout=1)
+    asyncio.run(audio_router.drain_audio_workers(timeout_seconds=1))
+    assert audio_router._audio_worker_count() == 0
+    assert list(tmp_path.glob("internal-analyze-*")) == []
+    assert len(tracking_during_cleanup) == capacity
+    assert all(count >= 1 for count in tracking_during_cleanup)
+    assert service.daemon_flags == [True] * capacity
+
+    settings.audio_processing_timeout_seconds = 0.5
+    app.dependency_overrides[get_diarization_service] = lambda: FakeDiarizationService()
+    recovered = client.post(
+        "/internal/v1/audio/analyze",
+        headers=auth_headers,
+        data={"sourceAudioFileId": SOURCE_FILE_ID},
+        files={"audio": ("synthetic.wav", b"synthetic", "audio/wav")},
+    )
+    assert recovered.status_code == 200
+    assert audio_router._audio_worker_count() == 0
+
+
+def test_container_tmp_contract_is_non_persistent():
+    root = Path(__file__).resolve().parents[1]
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert "VOLUME" not in dockerfile.upper()
+    assert "host volume mount 금지" in readme
+    assert Settings(_env_file=None).audio_worker_capacity == 4
+
+
 class MalformedTranscriptionService:
     async def transcribe(self, _path):
         return (
@@ -388,6 +496,6 @@ def test_cleanup_failure_is_fail_closed_and_safely_logged(
         files={"audio": ("clinical-secret.wav", b"RAW_SECRET", "audio/wav")},
     )
     assert response.status_code == 503
-    assert "Internal audio temporary cleanup failed." in caplog.text
+    assert "Internal audio background cleanup failed." in caplog.text
     assert "clinical-secret" not in caplog.text
     assert "RAW_SECRET" not in caplog.text
