@@ -6,6 +6,7 @@ import time
 from PIL import Image, ImageDraw
 import pytest
 
+import app.schedule_ocr.service as service_module
 from app.schedule_ocr.engine import OcrCandidate, TesseractCellOcrEngine, normalize_token
 from app.schedule_ocr.errors import ScheduleOcrError
 from app.schedule_ocr.service import ScheduleOcrService
@@ -123,6 +124,24 @@ def test_inference_uses_one_wall_clock_budget_for_all_cells() -> None:
     assert elapsed < 0.4
     assert len(engine.timeouts) < 31
     assert all(later <= earlier for earlier, later in zip(engine.timeouts, engine.timeouts[1:]))
+
+
+def test_decode_and_template_preprocessing_share_inference_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_decode = service_module.decode_image
+
+    def slow_decode(*args, **kwargs):
+        time.sleep(0.03)
+        return original_decode(*args, **kwargs)
+
+    monkeypatch.setattr(service_module, "decode_image", slow_decode)
+    with pytest.raises(ScheduleOcrError) as raised:
+        service(RecordingEngine(), inference_timeout_seconds=0.01).recognize(
+            image_bytes=synthetic_grid(), content_type="image/png", filename="synthetic.png",
+            year_month="2026-02", template_id="NURSE_HAND_FIXED_V1", row_index=3,
+        )
+    assert raised.value.code == "SCHEDULE_OCR_ENGINE_TIMEOUT"
 
 
 @pytest.mark.parametrize(("raw", "confidence", "token"), [

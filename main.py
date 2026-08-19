@@ -26,6 +26,7 @@ from app.services.speaker_store import SpeakerStore
 async def lifespan(_app: FastAPI):
     yield
     await audio.drain_audio_workers()
+    await schedule_ocr.drain_schedule_ocr_workers()
 
 
 app = FastAPI(title="Nurse Hand AI Server", version="1.0.0", lifespan=lifespan)

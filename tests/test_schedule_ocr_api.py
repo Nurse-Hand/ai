@@ -69,11 +69,22 @@ class ObservableInferenceGate(ScheduleOcrInferenceGate):
         super().__init__(1)
         self.acquired = threading.Event()
 
-    def acquire(self) -> bool:
-        result = super().acquire()
-        if result:
+    def try_accept(self):
+        result = super().try_accept()
+        if result is not None:
             self.acquired.set()
         return result
+
+
+class BlockingEngine:
+    def __init__(self) -> None:
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def recognize(self, _cell: Image.Image, *, timeout_seconds: float | None = None) -> OcrCandidate:
+        self.started.set()
+        self.release.wait(1.0)
+        return OcrCandidate("D", 0.95)
 
 
 def synthetic_png() -> bytes:
@@ -214,6 +225,88 @@ def test_inference_runs_off_event_loop_and_capacity_is_fail_fast() -> None:
             assert second.status_code == 503
             assert second.json()["error"]["code"] == "SCHEDULE_OCR_CAPACITY_EXHAUSTED"
             assert (await first).status_code == 200
+
+    asyncio.run(exercise())
+
+
+def test_cancelled_request_keeps_permit_until_worker_finishes_and_drain_is_bounded() -> None:
+    async def exercise() -> None:
+        os.environ["INTERNAL_TOKEN"] = "test-token"
+        get_settings.cache_clear()
+        blocking_engine = BlockingEngine()
+        service = ScheduleOcrService(
+            blocking_engine, max_image_bytes=10 * 1024 * 1024, min_image_width=640,
+            min_image_height=480, max_image_pixels=16_000_000, review_threshold=0.85,
+            inference_timeout_seconds=2.0,
+        )
+        app = FastAPI()
+        app.include_router(router)
+        app.add_exception_handler(ScheduleOcrError, schedule_ocr_error_handler)
+        app.dependency_overrides[get_schedule_ocr_service] = lambda: service
+        gate = ObservableInferenceGate()
+        app.dependency_overrides[get_schedule_ocr_inference_gate] = lambda: gate
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as async_client:
+            image = synthetic_png()
+            request = {
+                "headers": {"X-Internal-Token": "test-token"},
+                "files": {"image": ("synthetic.png", image, "image/png")},
+                "data": {
+                    "yearMonth": "2026-02", "templateId": "NURSE_HAND_FIXED_V1", "rowIndex": "3",
+                    "expectedWidth": "1600", "expectedHeight": "1200",
+                    "expectedSha256": hashlib.sha256(image).hexdigest(),
+                },
+            }
+            cancelled = asyncio.create_task(async_client.post("/internal/v1/schedules/ocr", **request))
+            assert await asyncio.to_thread(blocking_engine.started.wait, 1.0)
+            cancelled.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await cancelled
+
+            assert gate.worker_count == 1
+            rejected = await async_client.post("/internal/v1/schedules/ocr", **request)
+            assert rejected.status_code == 503
+            assert gate.worker_count == 1
+            await gate.drain(0.01)
+            assert gate.worker_count == 1
+
+            blocking_engine.release.set()
+            await gate.drain(1.0)
+            assert gate.worker_count == 0
+            recovered = await async_client.post("/internal/v1/schedules/ocr", **request)
+            assert recovered.status_code == 200
+            assert gate.worker_count == 0
+
+    asyncio.run(exercise())
+
+
+def test_repeated_worker_waiter_cancellation_never_exceeds_capacity() -> None:
+    async def exercise() -> None:
+        gate = ScheduleOcrInferenceGate(1)
+
+        def block_until_released(*, release: threading.Event) -> str:
+            release.wait(1.0)
+            return "done"
+
+        async def wait_for_worker(worker) -> None:
+            await asyncio.shield(asyncio.wrap_future(worker))
+
+        for _ in range(3):
+            release = threading.Event()
+            worker = gate.try_accept()
+            assert worker is not None
+            gate.start(worker, block_until_released, release=release)
+            waiter = asyncio.create_task(wait_for_worker(worker))
+            await asyncio.sleep(0)
+            waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+            assert gate.worker_count == 1
+            assert gate.try_accept() is None
+
+            release.set()
+            await gate.drain(1.0)
+            assert gate.worker_count == 0
 
     asyncio.run(exercise())
 

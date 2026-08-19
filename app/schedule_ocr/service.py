@@ -188,7 +188,11 @@ class ScheduleOcrService:
         expected_width: int | None = None,
         expected_height: int | None = None,
         expected_sha256: str | None = None,
+        deadline: float | None = None,
     ) -> ScheduleOcrResponse:
+        deadline = deadline or time.monotonic() + self.inference_timeout_seconds
+        if time.monotonic() >= deadline:
+            raise engine_timeout()
         if not image_bytes:
             raise invalid_request("image가 비어 있습니다.")
         if len(image_bytes) > self.max_image_bytes:
@@ -210,11 +214,16 @@ class ScheduleOcrService:
             expected_width=expected_width,
             expected_height=expected_height,
         )
+        if time.monotonic() >= deadline:
+            raise engine_timeout()
         normalized = validate_template_structure(image, template)
+        if time.monotonic() >= deadline:
+            raise engine_timeout()
         cells = selected_cells(normalized, template, row_index, calendar.monthrange(year, month)[1])
+        if time.monotonic() >= deadline:
+            raise engine_timeout()
 
         response_cells: list[ScheduleOcrCell] = []
-        deadline = time.monotonic() + self.inference_timeout_seconds
         for day, cell in enumerate(cells, start=1):
             remaining = deadline - time.monotonic()
             if remaining <= 0:

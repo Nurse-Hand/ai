@@ -1,6 +1,9 @@
 import asyncio
+from concurrent.futures import Future
 from functools import lru_cache
+import logging
 import threading
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Request
@@ -9,13 +12,14 @@ from fastapi.responses import JSONResponse
 from app.auth import InternalAuthError, require_internal_token
 from app.config import Settings, get_settings
 from app.schedule_ocr.engine import TesseractCellOcrEngine
-from app.schedule_ocr.errors import ScheduleOcrError, engine_busy
+from app.schedule_ocr.errors import ScheduleOcrError, engine_busy, engine_timeout, engine_unavailable
 from app.schedule_ocr.multipart import ScheduleOcrMultipartRequest, parse_schedule_ocr_form
 from app.schedule_ocr.schemas import ScheduleOcrErrorResponse, ScheduleOcrResponse
 from app.schedule_ocr.service import ScheduleOcrService
 from app.schedule_ocr.settings import ScheduleOcrSettings, get_schedule_ocr_settings
 
 ERROR_EXAMPLE = {"error": {"code": "SCHEDULE_OCR_INVALID_REQUEST", "message": "요청을 처리할 수 없습니다."}}
+logger = logging.getLogger(__name__)
 MULTIPART_SCHEMA = {
     "parameters": [
         {
@@ -87,23 +91,84 @@ class ScheduleOcrInferenceGate:
         if capacity < 1:
             raise ValueError("OCR inference capacity must be positive")
         self._semaphore = threading.BoundedSemaphore(capacity)
+        self._workers: set[Future] = set()
+        self._workers_lock = threading.Lock()
 
-    def acquire(self) -> bool:
-        return self._semaphore.acquire(blocking=False)
+    @property
+    def worker_count(self) -> int:
+        with self._workers_lock:
+            return len(self._workers)
 
-    def release(self) -> None:
-        self._semaphore.release()
+    def try_accept(self) -> Future | None:
+        if not self._semaphore.acquire(blocking=False):
+            return None
+        worker: Future = Future()
+        with self._workers_lock:
+            self._workers.add(worker)
+        worker.add_done_callback(self._complete)
+        return worker
+
+    def _complete(self, worker: Future) -> None:
+        try:
+            worker.result()
+        except BaseException:
+            logger.warning("Internal schedule OCR worker failed.")
+        finally:
+            with self._workers_lock:
+                self._workers.discard(worker)
+            self._semaphore.release()
+
+    def start(self, worker: Future, target, **kwargs) -> None:
+        def run() -> None:
+            if not worker.set_running_or_notify_cancel():
+                return
+            try:
+                result = target(**kwargs)
+            except BaseException as error:
+                worker.set_exception(error)
+            else:
+                worker.set_result(result)
+
+        thread = threading.Thread(target=run, name="internal-schedule-ocr", daemon=True)
+        try:
+            thread.start()
+        except Exception as error:
+            worker.set_exception(engine_unavailable())
+            raise engine_unavailable() from error
+
+    async def drain(self, timeout_seconds: float) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, timeout_seconds)
+        while self.worker_count:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                logger.warning("Internal schedule OCR workers are still pending at shutdown.")
+                return
+            await asyncio.sleep(min(0.05, remaining))
+
+
+_registered_inference_gates: set[ScheduleOcrInferenceGate] = set()
+_registered_inference_gates_lock = threading.Lock()
 
 
 @lru_cache(maxsize=None)
 def _inference_gate(capacity: int) -> ScheduleOcrInferenceGate:
-    return ScheduleOcrInferenceGate(capacity)
+    gate = ScheduleOcrInferenceGate(capacity)
+    with _registered_inference_gates_lock:
+        _registered_inference_gates.add(gate)
+    return gate
 
 
 def get_schedule_ocr_inference_gate(
     settings: ScheduleOcrSettings = Depends(get_schedule_ocr_settings),
 ) -> ScheduleOcrInferenceGate:
     return _inference_gate(settings.schedule_ocr_max_concurrency)
+
+
+async def drain_schedule_ocr_workers(timeout_seconds: float = 5.0) -> None:
+    gates = list(_registered_inference_gates)
+    if gates:
+        await asyncio.gather(*(gate.drain(timeout_seconds) for gate in gates))
 
 
 def get_schedule_ocr_service(
@@ -153,20 +218,29 @@ async def recognize_schedule(
     image = multipart.image
     fields = multipart.fields
     image_bytes = await image.read(service.max_image_bytes + 1)
-    if not inference_gate.acquire():
+    worker = inference_gate.try_accept()
+    if worker is None:
         raise engine_busy()
+    deadline = time.monotonic() + service.inference_timeout_seconds
+    inference_gate.start(
+        worker,
+        service.recognize,
+        image_bytes=image_bytes,
+        content_type=image.content_type,
+        filename=image.filename,
+        year_month=fields.yearMonth,
+        template_id=fields.templateId,
+        row_index=fields.rowIndex,
+        expected_width=fields.expectedWidth,
+        expected_height=fields.expectedHeight,
+        expected_sha256=fields.expectedSha256,
+        deadline=deadline,
+    )
+    wrapped_worker = asyncio.wrap_future(worker)
     try:
-        return await asyncio.to_thread(
-            service.recognize,
-            image_bytes=image_bytes,
-            content_type=image.content_type,
-            filename=image.filename,
-            year_month=fields.yearMonth,
-            template_id=fields.templateId,
-            row_index=fields.rowIndex,
-            expected_width=fields.expectedWidth,
-            expected_height=fields.expectedHeight,
-            expected_sha256=fields.expectedSha256,
+        return await asyncio.wait_for(
+            asyncio.shield(wrapped_worker),
+            timeout=max(0.0, deadline - time.monotonic()),
         )
-    finally:
-        inference_gate.release()
+    except asyncio.TimeoutError as error:
+        raise engine_timeout() from error
