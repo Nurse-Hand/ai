@@ -471,7 +471,7 @@ async function runEdgeCases() {
     { name: '아주 긴 evidence 텍스트 (5만자)', path: '/internal/v1/handoffs/generate', auth: true, expect: r => r.status < 500,
       body: { requestId: crypto.randomUUID(), patientId: 'p1', roundingSessionId: 'r1', evidences: [{ evidenceId: 'ev1', topic: 'VITAL_SIGNS', text: '산소포화도 재측정 필요. '.repeat(3000) }] } },
     { name: '이모지 · HTML · SQL 유사 문자', path: '/internal/v1/handoffs/generate', auth: true, expect: r => r.status < 500,
-      body: { requestId: crypto.randomUUID(), patientId: 'p1', roundingSessionId: 'r1', evidences: [{ evidenceId: 'ev1', topic: 'OBSERVATION', text: "😷🏥 <script>alert('x')</script> '; DROP TABLE tasks; -- \n\t한글中文🎉" }] } },
+      body: { requestId: crypto.randomUUID(), patientId: 'p1', roundingSessionId: 'r1', evidences: [{ evidenceId: 'ev1', topic: 'OBSERVATION', text: "😷🏥 <scr" + "ipt>alert('x')<\/scr" + "ipt> '; DROP TABLE tasks; -- \n\t한글中文🎉" }] } },
     { name: '존재하지 않는 topic 값', path: '/internal/v1/handoffs/generate', auth: true, expect: r => r.status < 500,
       body: { requestId: crypto.randomUUID(), patientId: 'p1', roundingSessionId: 'r1', evidences: [{ evidenceId: 'ev1', topic: 'NOT_A_REAL_TOPIC', text: '테스트' }] } },
     { name: 'requestId 누락 (422 기대)', path: '/internal/v1/tasks/prioritize', auth: true, expect: r => r.status === 422,
