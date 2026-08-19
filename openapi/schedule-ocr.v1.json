@@ -126,19 +126,12 @@
         "operationId": "recognize_schedule_internal_v1_schedules_ocr_post",
         "parameters": [
           {
+            "description": "Internal service authentication token.",
             "in": "header",
-            "name": "x-internal-token",
-            "required": false,
+            "name": "X-Internal-Token",
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Internal-Token"
+              "type": "string"
             }
           }
         ],
@@ -226,6 +219,26 @@
               }
             },
             "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOcrErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOcrErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
           },
           "415": {
             "content": {

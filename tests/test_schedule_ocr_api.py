@@ -3,6 +3,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -85,6 +87,12 @@ def valid_request(test_client: TestClient):
 def test_auth_is_required() -> None:
     response = client().post("/internal/v1/schedules/ocr")
     assert response.status_code == 401
+    assert response.json() == {
+        "error": {
+            "code": "SCHEDULE_OCR_UNAUTHORIZED",
+            "message": "유효한 내부 인증 token이 필요합니다.",
+        }
+    }
 
 
 def test_success_wire_contract() -> None:
@@ -175,6 +183,12 @@ def test_engine_unavailable_has_stable_error_envelope() -> None:
 def test_openapi_declares_required_multipart_and_errors() -> None:
     schema = client().get("/openapi.json").json()
     operation = schema["paths"]["/internal/v1/schedules/ocr"]["post"]
+    assert operation["parameters"] == [
+        {
+            "name": "X-Internal-Token", "in": "header", "required": True,
+            "schema": {"type": "string"}, "description": "Internal service authentication token.",
+        }
+    ]
     body_schema = operation["requestBody"]["content"]["multipart/form-data"]["schema"]
     assert body_schema["required"] == [
         "image", "yearMonth", "templateId", "rowIndex",
@@ -187,9 +201,20 @@ def test_openapi_declares_required_multipart_and_errors() -> None:
     assert schema["components"]["schemas"]["ScheduleOcrCell"]["properties"]["token"]["enum"] == [
         "DAY", "EVENING", "NIGHT", "OFF", "UNKNOWN",
     ]
-    assert set(operation["responses"]) >= {"200", "400", "415", "422", "502", "503", "504"}
+    assert set(operation["responses"]) >= {"200", "400", "401", "413", "415", "422", "502", "503", "504"}
 
 
 def test_generated_openapi_has_no_drift() -> None:
     artifact = json.loads((ROOT / "openapi" / "schedule-ocr.v1.json").read_text(encoding="utf-8"))
     assert artifact == contract_schema()
+
+
+def test_openapi_generator_is_directly_executable() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "generate_schedule_ocr_openapi.py")],
+        cwd=ROOT.parent,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr

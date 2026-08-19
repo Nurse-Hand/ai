@@ -50,3 +50,12 @@ Debian copyright/common-license paths, retain Pillow's installed `.dist-info/lic
 `.dist-info/sboms`, and manually inspect every component whose license or redistribution
 obligation is unresolved. Image scanning covers the complete OS/Python/model inventory;
 the OCR delta inventory alone is not a complete deployment SBOM.
+
+## Existing API runtime pins
+
+`requirements-ocr-api.txt` fixes the versions of FastAPI, Pydantic, Starlette and
+python-multipart exercised by this contract without rewriting the shared `requirements.txt`.
+These packages already existed in the AI service dependency graph; this version-fixing delta
+does not introduce a new package or model. Their licenses remain part of the required full-image
+SBOM review. The separate file only reduces integration conflicts and is not a substitute for a
+fully hashed lock of the complete Python environment.

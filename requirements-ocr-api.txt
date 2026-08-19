@@ -1,0 +1,5 @@
+# Existing API runtime dependencies, isolated from the shared requirements file to reduce branch conflicts.
+fastapi==0.141.1
+pydantic==2.13.4
+starlette==1.6.0
+python-multipart==0.0.32

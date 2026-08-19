@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
 
-from app.auth import verify_internal_token
+from app.auth import InternalAuthError, require_internal_token
 from app.schedule_ocr.engine import TesseractCellOcrEngine
 from app.schedule_ocr.errors import ScheduleOcrError
 from app.schedule_ocr.multipart import ScheduleOcrMultipartRequest, parse_schedule_ocr_form
@@ -9,14 +11,17 @@ from app.schedule_ocr.schemas import ScheduleOcrErrorResponse, ScheduleOcrRespon
 from app.schedule_ocr.service import ScheduleOcrService
 from app.schedule_ocr.settings import ScheduleOcrSettings, get_schedule_ocr_settings
 
-router = APIRouter(
-    prefix="/internal/v1/schedules",
-    tags=["schedule-ocr"],
-    dependencies=[Depends(verify_internal_token)],
-)
-
 ERROR_EXAMPLE = {"error": {"code": "SCHEDULE_OCR_INVALID_REQUEST", "message": "요청을 처리할 수 없습니다."}}
 MULTIPART_SCHEMA = {
+    "parameters": [
+        {
+            "name": "X-Internal-Token",
+            "in": "header",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Internal service authentication token.",
+        }
+    ],
     "requestBody": {
         "required": True,
         "content": {
@@ -47,6 +52,31 @@ MULTIPART_SCHEMA = {
 }
 
 
+async def verify_schedule_ocr_token(
+    x_internal_token: Annotated[
+        str | None,
+        Header(alias="X-Internal-Token", include_in_schema=False),
+    ] = None,
+) -> None:
+    try:
+        require_internal_token(x_internal_token)
+    except InternalAuthError as exc:
+        if exc.status_code == 503:
+            raise ScheduleOcrError(
+                "SCHEDULE_OCR_AUTH_UNAVAILABLE", "내부 인증을 사용할 수 없습니다.", 503,
+            ) from exc
+        raise ScheduleOcrError(
+            "SCHEDULE_OCR_UNAUTHORIZED", "유효한 내부 인증 token이 필요합니다.", 401,
+        ) from exc
+
+
+router = APIRouter(
+    prefix="/internal/v1/schedules",
+    tags=["schedule-ocr"],
+    dependencies=[Depends(verify_schedule_ocr_token)],
+)
+
+
 def get_schedule_ocr_service(
     settings: ScheduleOcrSettings = Depends(get_schedule_ocr_settings),
 ) -> ScheduleOcrService:
@@ -75,7 +105,9 @@ async def schedule_ocr_error_handler(_request: Request, exc: ScheduleOcrError) -
     status_code=200,
     openapi_extra=MULTIPART_SCHEMA,
     responses={
+        401: {"model": ScheduleOcrErrorResponse},
         400: {"model": ScheduleOcrErrorResponse, "content": {"application/json": {"example": ERROR_EXAMPLE}}},
+        413: {"model": ScheduleOcrErrorResponse},
         415: {"model": ScheduleOcrErrorResponse},
         422: {"model": ScheduleOcrErrorResponse},
         502: {"model": ScheduleOcrErrorResponse},

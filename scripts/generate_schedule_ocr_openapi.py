@@ -1,12 +1,16 @@
 import json
 from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from fastapi import FastAPI
 
 from app.routers.schedule_ocr import router, schedule_ocr_error_handler
 from app.schedule_ocr.errors import ScheduleOcrError
 
-ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "openapi" / "schedule-ocr.v1.json"
 
 

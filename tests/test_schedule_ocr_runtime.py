@@ -1,5 +1,6 @@
 from pathlib import Path
 import hashlib
+from importlib.metadata import version
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -57,3 +58,18 @@ def test_preserved_pillow_license_matches_fixed_linux_wheel_hash() -> None:
     assert f"pillow_cp311_manylinux_x86_64_embedded_license_sha256={digest}" in lock
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert f"{digest}  /usr/local/lib/python3.11/site-packages/pillow-12.3.0.dist-info/licenses/LICENSE" in dockerfile
+
+
+def test_ocr_api_runtime_versions_are_isolated_and_fixed() -> None:
+    pins = (ROOT / "requirements-ocr-api.txt").read_text(encoding="utf-8")
+    assert "fastapi==0.141.1" in pins
+    assert "pydantic==2.13.4" in pins
+    assert "starlette==1.6.0" in pins
+    assert "python-multipart==0.0.32" in pins
+    assert version("fastapi") == "0.141.1"
+    assert version("pydantic") == "2.13.4"
+    assert version("starlette") == "1.6.0"
+    assert version("python-multipart") == "0.0.32"
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY requirements.txt requirements-ocr-api.txt requirements-ocr.txt ./" in dockerfile
+    assert "pip install --no-cache-dir -r requirements-ocr-api.txt" in dockerfile

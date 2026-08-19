@@ -18,8 +18,9 @@ RUN printf '%s\n' \
     && echo '7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2  /usr/share/tesseract-ocr/5/tessdata/eng.traineddata' \
       | sha256sum -c - \
     && rm -rf /var/lib/apt/lists/*
-COPY requirements.txt requirements-ocr.txt ./
+COPY requirements.txt requirements-ocr-api.txt requirements-ocr.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir -r requirements-ocr-api.txt \
     && pip install --no-cache-dir --no-deps --only-binary=:all: --require-hashes -r requirements-ocr.txt \
     && echo 'dda12a98c1979cf3d94df1cff45d27a4cb3f04a60c76f76902ac54cac03ec0ce  /usr/local/lib/python3.11/site-packages/pillow-12.3.0.dist-info/licenses/LICENSE' \
       | sha256sum -c - \
