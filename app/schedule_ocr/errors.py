@@ -28,6 +28,10 @@ def engine_unavailable() -> ScheduleOcrError:
     return ScheduleOcrError("SCHEDULE_OCR_ENGINE_UNAVAILABLE", "OCR 엔진을 사용할 수 없습니다.", 503)
 
 
+def engine_busy() -> ScheduleOcrError:
+    return ScheduleOcrError("SCHEDULE_OCR_CAPACITY_EXHAUSTED", "OCR 처리 용량이 모두 사용 중입니다.", 503)
+
+
 def engine_timeout() -> ScheduleOcrError:
     return ScheduleOcrError("SCHEDULE_OCR_ENGINE_TIMEOUT", "OCR 엔진 처리 시간이 초과되었습니다.", 504)
 

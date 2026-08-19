@@ -14,7 +14,7 @@ from main import app
 
 
 class FakeEngine:
-    def recognize(self, _cell: Image.Image) -> OcrCandidate:
+    def recognize(self, _cell: Image.Image, *, timeout_seconds: float | None = None) -> OcrCandidate:
         return OcrCandidate("D", 0.95)
 
 

@@ -1,12 +1,13 @@
 import calendar
 import hashlib
 import re
+import time
 from datetime import date
 
 from PIL import Image, ImageOps
 
 from app.schedule_ocr.engine import CellOcrEngine
-from app.schedule_ocr.errors import invalid_request, unsupported_template
+from app.schedule_ocr.errors import engine_timeout, invalid_request, unsupported_template
 from app.schedule_ocr.image import decode_image
 from app.schedule_ocr.schemas import ScheduleOcrCell, ScheduleOcrResponse
 from app.schedule_ocr.templates import ScheduleTemplate, get_template
@@ -165,6 +166,7 @@ class ScheduleOcrService:
         min_image_height: int,
         max_image_pixels: int,
         review_threshold: float,
+        inference_timeout_seconds: float = 5.0,
     ) -> None:
         self.engine = engine
         self.max_image_bytes = max_image_bytes
@@ -172,6 +174,7 @@ class ScheduleOcrService:
         self.min_image_height = min_image_height
         self.max_image_pixels = max_image_pixels
         self.review_threshold = review_threshold
+        self.inference_timeout_seconds = inference_timeout_seconds
 
     def recognize(
         self,
@@ -211,8 +214,14 @@ class ScheduleOcrService:
         cells = selected_cells(normalized, template, row_index, calendar.monthrange(year, month)[1])
 
         response_cells: list[ScheduleOcrCell] = []
+        deadline = time.monotonic() + self.inference_timeout_seconds
         for day, cell in enumerate(cells, start=1):
-            candidate = self.engine.recognize(cell)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise engine_timeout()
+            candidate = self.engine.recognize(cell, timeout_seconds=remaining)
+            if time.monotonic() > deadline:
+                raise engine_timeout()
             response_cells.append(
                 ScheduleOcrCell(
                     date=date(year, month, day),

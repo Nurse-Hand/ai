@@ -12,6 +12,8 @@ class ScheduleOcrSettings(BaseSettings):
     schedule_ocr_min_image_height: int = 480
     schedule_ocr_max_image_pixels: int = 16_000_000
     schedule_ocr_timeout_seconds: float = 5.0
+    schedule_ocr_cell_timeout_seconds: float = 1.0
+    schedule_ocr_max_concurrency: int = 2
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

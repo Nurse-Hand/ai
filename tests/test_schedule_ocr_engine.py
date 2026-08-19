@@ -1,6 +1,7 @@
 from io import BytesIO
 import shutil
 import subprocess
+import time
 
 from PIL import Image, ImageDraw
 import pytest
@@ -16,9 +17,21 @@ class RecordingEngine:
         self.candidate = candidate
         self.cells: list[Image.Image] = []
 
-    def recognize(self, cell: Image.Image) -> OcrCandidate:
+    def recognize(self, cell: Image.Image, *, timeout_seconds: float | None = None) -> OcrCandidate:
         self.cells.append(cell.copy())
         return self.candidate
+
+
+class DeadlineRecordingEngine(RecordingEngine):
+    def __init__(self) -> None:
+        super().__init__()
+        self.timeouts: list[float] = []
+
+    def recognize(self, cell: Image.Image, *, timeout_seconds: float | None = None) -> OcrCandidate:
+        assert timeout_seconds is not None
+        self.timeouts.append(timeout_seconds)
+        time.sleep(min(timeout_seconds, 0.02))
+        return super().recognize(cell, timeout_seconds=timeout_seconds)
 
 
 def synthetic_grid(
@@ -90,6 +103,26 @@ def test_month_day_counts_and_selected_row_only(year_month: str, expected_days: 
     assert len(result.cells) == expected_days
     assert len(engine.cells) == expected_days
     assert all(cell.getextrema() == (255, 255) for cell in engine.cells)
+
+
+def test_inference_uses_one_wall_clock_budget_for_all_cells() -> None:
+    engine = DeadlineRecordingEngine()
+    started = time.monotonic()
+    with pytest.raises(ScheduleOcrError) as raised:
+        service(engine, inference_timeout_seconds=0.05).recognize(
+            image_bytes=synthetic_grid(selected_row=3),
+            content_type="image/png",
+            filename="synthetic.png",
+            year_month="2026-01",
+            template_id="NURSE_HAND_FIXED_V1",
+            row_index=3,
+        )
+    elapsed = time.monotonic() - started
+
+    assert raised.value.code == "SCHEDULE_OCR_ENGINE_TIMEOUT"
+    assert elapsed < 0.4
+    assert len(engine.timeouts) < 31
+    assert all(later <= earlier for earlier, later in zip(engine.timeouts, engine.timeouts[1:]))
 
 
 @pytest.mark.parametrize(("raw", "confidence", "token"), [

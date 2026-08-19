@@ -1,3 +1,6 @@
+import asyncio
+from functools import lru_cache
+import threading
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Request
@@ -5,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.auth import InternalAuthError, require_internal_token
 from app.schedule_ocr.engine import TesseractCellOcrEngine
-from app.schedule_ocr.errors import ScheduleOcrError
+from app.schedule_ocr.errors import ScheduleOcrError, engine_busy
 from app.schedule_ocr.multipart import ScheduleOcrMultipartRequest, parse_schedule_ocr_form
 from app.schedule_ocr.schemas import ScheduleOcrErrorResponse, ScheduleOcrResponse
 from app.schedule_ocr.service import ScheduleOcrService
@@ -77,6 +80,30 @@ router = APIRouter(
 )
 
 
+class ScheduleOcrInferenceGate:
+    def __init__(self, capacity: int) -> None:
+        if capacity < 1:
+            raise ValueError("OCR inference capacity must be positive")
+        self._semaphore = threading.BoundedSemaphore(capacity)
+
+    def acquire(self) -> bool:
+        return self._semaphore.acquire(blocking=False)
+
+    def release(self) -> None:
+        self._semaphore.release()
+
+
+@lru_cache(maxsize=None)
+def _inference_gate(capacity: int) -> ScheduleOcrInferenceGate:
+    return ScheduleOcrInferenceGate(capacity)
+
+
+def get_schedule_ocr_inference_gate(
+    settings: ScheduleOcrSettings = Depends(get_schedule_ocr_settings),
+) -> ScheduleOcrInferenceGate:
+    return _inference_gate(settings.schedule_ocr_max_concurrency)
+
+
 def get_schedule_ocr_service(
     settings: ScheduleOcrSettings = Depends(get_schedule_ocr_settings),
 ) -> ScheduleOcrService:
@@ -85,13 +112,14 @@ def get_schedule_ocr_service(
             settings.tesseract_bin,
             settings.tesseract_language,
             settings.schedule_ocr_confidence_threshold,
-            settings.schedule_ocr_timeout_seconds,
+            settings.schedule_ocr_cell_timeout_seconds,
         ),
         max_image_bytes=settings.schedule_ocr_max_image_bytes,
         min_image_width=settings.schedule_ocr_min_image_width,
         min_image_height=settings.schedule_ocr_min_image_height,
         max_image_pixels=settings.schedule_ocr_max_image_pixels,
         review_threshold=settings.schedule_ocr_confidence_threshold,
+        inference_timeout_seconds=settings.schedule_ocr_timeout_seconds,
     )
 
 
@@ -118,18 +146,25 @@ async def schedule_ocr_error_handler(_request: Request, exc: ScheduleOcrError) -
 async def recognize_schedule(
     multipart: ScheduleOcrMultipartRequest = Depends(parse_schedule_ocr_form),
     service: ScheduleOcrService = Depends(get_schedule_ocr_service),
+    inference_gate: ScheduleOcrInferenceGate = Depends(get_schedule_ocr_inference_gate),
 ) -> ScheduleOcrResponse:
     image = multipart.image
     fields = multipart.fields
     image_bytes = await image.read(service.max_image_bytes + 1)
-    return service.recognize(
-        image_bytes=image_bytes,
-        content_type=image.content_type,
-        filename=image.filename,
-        year_month=fields.yearMonth,
-        template_id=fields.templateId,
-        row_index=fields.rowIndex,
-        expected_width=fields.expectedWidth,
-        expected_height=fields.expectedHeight,
-        expected_sha256=fields.expectedSha256,
-    )
+    if not inference_gate.acquire():
+        raise engine_busy()
+    try:
+        return await asyncio.to_thread(
+            service.recognize,
+            image_bytes=image_bytes,
+            content_type=image.content_type,
+            filename=image.filename,
+            year_month=fields.yearMonth,
+            template_id=fields.templateId,
+            row_index=fields.rowIndex,
+            expected_width=fields.expectedWidth,
+            expected_height=fields.expectedHeight,
+            expected_sha256=fields.expectedSha256,
+        )
+    finally:
+        inference_gate.release()

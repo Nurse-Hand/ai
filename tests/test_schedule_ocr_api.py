@@ -1,18 +1,27 @@
 from io import BytesIO
+import asyncio
 import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import httpx
 from PIL import Image, ImageDraw
 import pytest
 from starlette.datastructures import UploadFile
 
-from app.routers.schedule_ocr import get_schedule_ocr_service, router, schedule_ocr_error_handler
+from app.routers.schedule_ocr import (
+    ScheduleOcrInferenceGate,
+    get_schedule_ocr_inference_gate,
+    get_schedule_ocr_service,
+    router,
+    schedule_ocr_error_handler,
+)
 from app.schedule_ocr.engine import OcrCandidate
 from app.schedule_ocr.errors import ScheduleOcrError
 from app.schedule_ocr.service import ScheduleOcrService
@@ -22,12 +31,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeEngine:
-    def recognize(self, _cell: Image.Image) -> OcrCandidate:
+    def recognize(self, _cell: Image.Image, *, timeout_seconds: float | None = None) -> OcrCandidate:
         return OcrCandidate("D", 0.95)
 
 
 class UnavailableEngine:
-    def recognize(self, _cell: Image.Image) -> OcrCandidate:
+    def recognize(self, _cell: Image.Image, *, timeout_seconds: float | None = None) -> OcrCandidate:
         raise ScheduleOcrError("SCHEDULE_OCR_ENGINE_UNAVAILABLE", "OCR 엔진을 사용할 수 없습니다.", 503)
 
 
@@ -36,8 +45,14 @@ class FailingEngine:
         self.code = code
         self.status_code = status_code
 
-    def recognize(self, _cell: Image.Image) -> OcrCandidate:
+    def recognize(self, _cell: Image.Image, *, timeout_seconds: float | None = None) -> OcrCandidate:
         raise ScheduleOcrError(self.code, "OCR 엔진 처리 실패", self.status_code)
+
+
+class SlowEngine:
+    def recognize(self, _cell: Image.Image, *, timeout_seconds: float | None = None) -> OcrCandidate:
+        time.sleep(0.01)
+        return OcrCandidate("D", 0.95)
 
 
 def synthetic_png() -> bytes:
@@ -76,6 +91,14 @@ def failing_service(code: str, status_code: int) -> ScheduleOcrService:
     return ScheduleOcrService(
         FailingEngine(code, status_code), max_image_bytes=10 * 1024 * 1024, min_image_width=640,
         min_image_height=480, max_image_pixels=16_000_000, review_threshold=0.85,
+    )
+
+
+def slow_service() -> ScheduleOcrService:
+    return ScheduleOcrService(
+        SlowEngine(), max_image_bytes=10 * 1024 * 1024, min_image_width=640,
+        min_image_height=480, max_image_pixels=16_000_000, review_threshold=0.85,
+        inference_timeout_seconds=2.0,
     )
 
 
@@ -136,6 +159,40 @@ def test_success_wire_contract() -> None:
         "date": "2026-02-01", "token": "DAY", "confidence": 0.95, "needsReview": False,
     }
     assert len(payload["cells"]) == 28
+
+
+def test_inference_runs_off_event_loop_and_capacity_is_fail_fast() -> None:
+    async def exercise() -> None:
+        os.environ["INTERNAL_API_TOKEN"] = "test-token"
+        app = FastAPI()
+        app.include_router(router)
+        app.add_exception_handler(ScheduleOcrError, schedule_ocr_error_handler)
+        app.dependency_overrides[get_schedule_ocr_service] = slow_service
+        gate = ScheduleOcrInferenceGate(1)
+        app.dependency_overrides[get_schedule_ocr_inference_gate] = lambda: gate
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as async_client:
+            image = synthetic_png()
+            request = {
+                "headers": {"X-Internal-Token": "test-token"},
+                "files": {"image": ("synthetic.png", image, "image/png")},
+                "data": {
+                    "yearMonth": "2026-02", "templateId": "NURSE_HAND_FIXED_V1", "rowIndex": "3",
+                    "expectedWidth": "1600", "expectedHeight": "1200",
+                    "expectedSha256": hashlib.sha256(image).hexdigest(),
+                },
+            }
+            first = asyncio.create_task(async_client.post("/internal/v1/schedules/ocr", **request))
+            await asyncio.sleep(0.03)
+            assert not first.done()
+            started = time.monotonic()
+            second = await async_client.post("/internal/v1/schedules/ocr", **request)
+            assert time.monotonic() - started < 0.2
+            assert second.status_code == 503
+            assert second.json()["error"]["code"] == "SCHEDULE_OCR_CAPACITY_EXHAUSTED"
+            assert (await first).status_code == 200
+
+    asyncio.run(exercise())
 
 
 def test_missing_form_has_stable_error_envelope() -> None:

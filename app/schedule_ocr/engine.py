@@ -18,7 +18,7 @@ class OcrCandidate:
 
 
 class CellOcrEngine(Protocol):
-    def recognize(self, cell: Image.Image) -> OcrCandidate: ...
+    def recognize(self, cell: Image.Image, *, timeout_seconds: float | None = None) -> OcrCandidate: ...
 
 
 def normalize_token(raw: str, confidence: float, threshold: float) -> OcrCandidate:
@@ -36,7 +36,7 @@ class TesseractCellOcrEngine:
         self.confidence_threshold = confidence_threshold
         self.timeout_seconds = timeout_seconds
 
-    def recognize(self, cell: Image.Image) -> OcrCandidate:
+    def recognize(self, cell: Image.Image, *, timeout_seconds: float | None = None) -> OcrCandidate:
         executable = shutil.which(self.binary)
         if executable is None:
             raise engine_unavailable()
@@ -61,7 +61,7 @@ class TesseractCellOcrEngine:
                 input=payload.getvalue(),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
-                timeout=self.timeout_seconds,
+                timeout=self.timeout_seconds if timeout_seconds is None else min(timeout_seconds, self.timeout_seconds),
                 check=False,
                 shell=False,
             )
