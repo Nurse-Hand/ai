@@ -1,0 +1,3 @@
+# CPython 3.11 manylinux x86_64 wheel from official PyPI (Pillow 12.3.0).
+Pillow==12.3.0 \
+    --hash=sha256:23d27a3e0307ec2244cc51e7287b919aa68d097504ebe19df4e76a98a3eea5bd
