@@ -13,6 +13,31 @@ from app.schedule_ocr.templates import ScheduleTemplate, get_template
 YEAR_MONTH_PATTERN = re.compile(r"^(?P<year>20\d{2})-(?P<month>0[1-9]|1[0-2])$")
 
 
+def _dark_ratio(image: Image.Image) -> float:
+    histogram = image.histogram()
+    return histogram[1] / (image.width * image.height)
+
+
+def _stripe_ratio(
+    pixels,
+    *,
+    position: int,
+    band: int,
+    start: int,
+    end: int,
+    vertical: bool,
+    width: int,
+    height: int,
+) -> float:
+    if vertical:
+        low, high = max(0, position - band), min(width, position + band + 1)
+        dark = sum(pixels[x, y] for x in range(low, high) for y in range(start, end))
+        return dark / ((high - low) * (end - start))
+    low, high = max(0, position - band), min(height, position + band + 1)
+    dark = sum(pixels[x, y] for y in range(low, high) for x in range(start, end))
+    return dark / ((high - low) * (end - start))
+
+
 def validate_template_structure(image: Image.Image, template: ScheduleTemplate) -> Image.Image:
     expected_ratio = template.width / template.height
     actual_ratio = image.width / image.height
@@ -20,11 +45,18 @@ def validate_template_structure(image: Image.Image, template: ScheduleTemplate) 
         raise unsupported_template("이미지 종횡비가 지원 template과 일치하지 않습니다.")
 
     normalized = image.resize((template.width, template.height), Image.Resampling.LANCZOS)
-    dark = ImageOps.grayscale(normalized).point(lambda value: 1 if value < 96 else 0, mode="L")
-    anchor = dark.crop(template.anchor_box)
-    anchor_histogram = anchor.histogram()
-    anchor_ratio = anchor_histogram[1] / (anchor.width * anchor.height)
-    if anchor_ratio < template.minimum_anchor_dark_ratio:
+    grayscale = ImageOps.grayscale(normalized)
+    dark = grayscale.point(lambda value: 1 if value < 96 else 0, mode="L")
+    anchor_inner = dark.crop(template.anchor_inner_box)
+    anchor_outer = dark.crop(template.anchor_outer_box)
+    inner_dark_pixels = anchor_inner.histogram()[1]
+    outer_dark_pixels = anchor_outer.histogram()[1]
+    surround_pixels = anchor_outer.width * anchor_outer.height - anchor_inner.width * anchor_inner.height
+    surround_dark_ratio = (outer_dark_pixels - inner_dark_pixels) / surround_pixels
+    if (
+        _dark_ratio(anchor_inner) < template.minimum_anchor_inner_dark_ratio
+        or surround_dark_ratio > template.maximum_anchor_surround_dark_ratio
+    ):
         raise unsupported_template("지원 template anchor를 찾을 수 없습니다.")
 
     pixels = dark.load()
@@ -37,24 +69,58 @@ def validate_template_structure(image: Image.Image, template: ScheduleTemplate) 
         round(template.grid_top + row * (template.grid_bottom - template.grid_top) / template.row_count)
         for row in range(template.row_count + 1)
     ]
-    vertical_ratios = [
-        sum(
-            pixels[x, y]
-            for x in range(max(0, position - band), min(template.width, position + band + 1))
-            for y in range(template.grid_top, template.grid_bottom)
-        ) / ((min(template.width, position + band + 1) - max(0, position - band)) * (template.grid_bottom - template.grid_top))
-        for position in vertical_positions
-    ]
-    horizontal_ratios = [
-        sum(
-            pixels[x, y]
-            for y in range(max(0, position - band), min(template.height, position + band + 1))
-            for x in range(template.grid_left, template.grid_right)
-        ) / ((min(template.height, position + band + 1) - max(0, position - band)) * (template.grid_right - template.grid_left))
-        for position in horizontal_positions
-    ]
-    if min(vertical_ratios) < template.minimum_grid_line_ratio or min(horizontal_ratios) < template.minimum_grid_line_ratio:
+    adjacent_offset = 8
+    vertical_ratios = []
+    vertical_contrasts = []
+    for index, position in enumerate(vertical_positions):
+        line_ratio = _stripe_ratio(
+            pixels, position=position, band=band, start=template.grid_top,
+            end=template.grid_bottom, vertical=True, width=template.width, height=template.height,
+        )
+        adjacent_position = position + adjacent_offset if index < len(vertical_positions) - 1 else position - adjacent_offset
+        adjacent_ratio = _stripe_ratio(
+            pixels, position=adjacent_position, band=band, start=template.grid_top,
+            end=template.grid_bottom, vertical=True, width=template.width, height=template.height,
+        )
+        vertical_ratios.append(line_ratio)
+        vertical_contrasts.append(line_ratio - adjacent_ratio)
+
+    horizontal_ratios = []
+    horizontal_contrasts = []
+    for index, position in enumerate(horizontal_positions):
+        line_ratio = _stripe_ratio(
+            pixels, position=position, band=band, start=template.grid_left,
+            end=template.grid_right, vertical=False, width=template.width, height=template.height,
+        )
+        adjacent_position = position + adjacent_offset if index < len(horizontal_positions) - 1 else position - adjacent_offset
+        adjacent_ratio = _stripe_ratio(
+            pixels, position=adjacent_position, band=band, start=template.grid_left,
+            end=template.grid_right, vertical=False, width=template.width, height=template.height,
+        )
+        horizontal_ratios.append(line_ratio)
+        horizontal_contrasts.append(line_ratio - adjacent_ratio)
+
+    if (
+        min(vertical_ratios) < template.minimum_grid_line_ratio
+        or min(horizontal_ratios) < template.minimum_grid_line_ratio
+        or min(vertical_contrasts) < template.minimum_grid_contrast
+        or min(horizontal_contrasts) < template.minimum_grid_contrast
+    ):
         raise unsupported_template("지원 template 격자 구조를 찾을 수 없습니다.")
+
+    cell_width = (template.grid_right - template.grid_left) / template.column_count
+    cell_height = (template.grid_bottom - template.grid_top) / template.row_count
+    for row in range(template.row_count):
+        for column in range(template.column_count):
+            left = round(template.grid_left + column * cell_width + band + 4)
+            right = round(template.grid_left + (column + 1) * cell_width - band - 4)
+            top = round(template.grid_top + row * cell_height + band + 4)
+            bottom = round(template.grid_top + (row + 1) * cell_height - band - 4)
+            cell = grayscale.crop((left, top, right, bottom))
+            histogram = cell.histogram()
+            bright_ratio = sum(histogram[160:]) / (cell.width * cell.height)
+            if bright_ratio < template.minimum_cell_bright_ratio:
+                raise unsupported_template("지원 template 셀 내부 밝기 구조가 일치하지 않습니다.")
     return normalized
 
 

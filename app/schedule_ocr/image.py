@@ -30,14 +30,25 @@ def _png_dimensions(data: bytes) -> tuple[int, int] | None:
 
 def _jpeg_dimensions(data: bytes) -> tuple[int, int] | None:
     offset = 2
-    while offset + 9 < len(data):
+    standalone_markers = {0x01, 0xD8, 0xD9, *range(0xD0, 0xD8)}
+    while offset < len(data):
         if data[offset] != 0xFF:
             offset += 1
             continue
-        marker = data[offset + 1]
-        offset += 2
-        if marker in {0xD8, 0xD9}:
+        while offset < len(data) and data[offset] == 0xFF:
+            offset += 1
+        if offset >= len(data):
+            return None
+        marker = data[offset]
+        offset += 1
+        if marker == 0x00:
             continue
+        if marker in standalone_markers:
+            if marker == 0xD9:
+                return None
+            continue
+        if marker == 0xDA:
+            return None
         if offset + 2 > len(data):
             return None
         length = int.from_bytes(data[offset : offset + 2], "big")

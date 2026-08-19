@@ -168,6 +168,40 @@ def test_unrelated_or_misaligned_images_are_unsupported_templates(case: str) -> 
     assert raised.value.code == "SCHEDULE_OCR_UNSUPPORTED_TEMPLATE"
 
 
+@pytest.mark.parametrize("case", ["black", "black-grid", "dark-unrelated"])
+def test_uniform_dark_images_cannot_impersonate_template(case: str) -> None:
+    template = FIXED_TEMPLATE_V1
+    if case == "black":
+        image = Image.new("RGB", (template.width, template.height), "black")
+    elif case == "dark-unrelated":
+        image = Image.new("RGB", (template.width, template.height), (48, 48, 48))
+    else:
+        image = Image.open(BytesIO(synthetic_grid())).convert("RGB")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle(
+            (template.grid_left, template.grid_top, template.grid_right, template.grid_bottom),
+            fill="black",
+        )
+    output = BytesIO()
+    image.save(output, "PNG")
+    with pytest.raises(ScheduleOcrError) as raised:
+        service(RecordingEngine()).recognize(
+            image_bytes=output.getvalue(), content_type="image/png", filename="synthetic.png",
+            year_month="2026-02", template_id="NURSE_HAND_FIXED_V1", row_index=3,
+        )
+    assert raised.value.code == "SCHEDULE_OCR_UNSUPPORTED_TEMPLATE"
+
+
+def test_jpeg_fill_byte_before_app_marker_is_accepted() -> None:
+    jpeg = synthetic_grid("JPEG")
+    with_fill_byte = jpeg[:2] + b"\xff" + jpeg[2:]
+    result = service(RecordingEngine()).recognize(
+        image_bytes=with_fill_byte, content_type="image/jpeg", filename="synthetic.jpg",
+        year_month="2026-02", template_id="NURSE_HAND_FIXED_V1", row_index=3,
+    )
+    assert len(result.cells) == 28
+
+
 def test_signature_spoof_is_rejected() -> None:
     with pytest.raises(ScheduleOcrError) as raised:
         service(RecordingEngine()).recognize(
