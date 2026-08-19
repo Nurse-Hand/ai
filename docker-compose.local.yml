@@ -1,0 +1,137 @@
+name: nurse-hand
+
+services:
+  db:
+    image: postgres:16.4-alpine
+    container_name: nurse-hand-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nurse_hand}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nurse_hand}
+      POSTGRES_DB: ${POSTGRES_DB:-nurse_hand}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - "${POSTGRES_DATA_DIR:-./.local/postgres}:/var/lib/postgresql/data"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-nurse_hand} -d ${POSTGRES_DB:-nurse_hand}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  api:
+    image: ${NURSE_HAND_SERVER_IMAGE:-nurse-hand-server:dev}
+    container_name: nurse-hand-server
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: ${DATABASE_URL:-postgresql://nurse_hand:nurse_hand@db:5432/nurse_hand}
+      DEMO_MODE: ${DEMO_MODE:-false}
+      DEMO_SESSION_TTL_SECONDS: ${DEMO_SESSION_TTL_SECONDS:-25200}
+      NO_LOGIN_MVP_CONTEXT: ${NO_LOGIN_MVP_CONTEXT:-true}
+      NO_LOGIN_MVP_DATASET_ID: ${NO_LOGIN_MVP_DATASET_ID:-00000000-0000-4000-8000-000000000101}
+      FILE_STORAGE_ROOT: ${FILE_STORAGE_ROOT:-./.local/uploads}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - "${FILE_STORAGE_ROOT:-./.local/uploads}:${FILE_STORAGE_ROOT:-./.local/uploads}"
+    command: >
+      sh -c "npx prisma migrate deploy &&
+      node dist/src/main.js"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/v1/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  ai:
+    image: ${NURSE_HAND_AI_IMAGE:-jadest03/nurse-hand-ai:latest}
+    container_name: nurse-hand-ai
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PORT: 8000
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      DEEPGRAM_MODEL: ${DEEPGRAM_MODEL:-nova-3}
+      DEEPGRAM_LANGUAGE: ${DEEPGRAM_LANGUAGE:-ko-KR}
+      PYANNOTE_AUTH_TOKEN: ${PYANNOTE_AUTH_TOKEN:-}
+      PYANNOTE_DIARIZATION_MODEL: ${PYANNOTE_DIARIZATION_MODEL:-pyannote/speaker-diarization-community-1}
+      MATCH_THRESHOLD: ${MATCH_THRESHOLD:-0.7}
+      TOP_K_DEFAULT: ${TOP_K_DEFAULT:-3}
+      MIN_SEGMENT_SEC: ${MIN_SEGMENT_SEC:-0.8}
+      MIN_SPEAKER_TOTAL_SEC: ${MIN_SPEAKER_TOTAL_SEC:-1.2}
+      KEEP_UPLOADS: ${KEEP_UPLOADS:-false}
+      DATA_DIR: ${AI_DATA_DIR:-./.local/ai/data}
+      TMP_DIR: ${AI_TMP_DIR:-./.local/ai/tmp}
+      FFMPEG_BIN: ${FFMPEG_BIN:-ffmpeg}
+    ports:
+      - "${AI_PORT:-8000}:8000"
+    volumes:
+      - "${AI_DATA_DIR:-./.local/ai/data}:${AI_DATA_DIR:-./.local/ai/data}"
+      - "${AI_TMP_DIR:-./.local/ai/tmp}:${AI_TMP_DIR:-./.local/ai/tmp}"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status < 400 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  demo-ui:
+    image: nginx:1.27-alpine
+    container_name: nurse-hand-demo-ui
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${DEMO_UI_PORT:-5173}:80"
+    volumes:
+      - ./tools/rounding-mvp-lab:/usr/share/nginx/html:ro
+    command: |
+      sh -c "cat > /etc/nginx/conf.d/default.conf <<'EOF'
+      server {
+        listen 80;
+        server_name _;
+        root /usr/share/nginx/html;
+        index public/index.html;
+
+        location = / {
+          try_files /public/index.html =404;
+        }
+
+        location / {
+          try_files $$uri $$uri/ =404;
+        }
+      }
+      EOF
+      nginx -g 'daemon off;'"

@@ -1,6 +1,8 @@
 import os
+import time
 from typing import TypeVar
 from pydantic import BaseModel
+from openai import RateLimitError
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -23,12 +25,22 @@ def call_structured(system_prompt: str, user_content: str, response_model: type[
     if client is None:
         return stub
 
-    completion = client.beta.chat.completions.parse(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        response_format=response_model,
-    )
-    return completion.choices[0].message.parsed
+    # ponytail: OpenAI 조직 tier 업그레이드 직후 일부 요청이 랜덤하게 예전 rate limit에
+    # 걸리는 전파 지연 케이스가 관측됨 - 짧은 재시도로 흡수. 계속 실패하면 그대로 raise.
+    last_error: RateLimitError | None = None
+    for attempt in range(3):
+        try:
+            completion = client.beta.chat.completions.parse(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                response_format=response_model,
+            )
+            return completion.choices[0].message.parsed
+        except RateLimitError as e:
+            last_error = e
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+    raise last_error
