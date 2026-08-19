@@ -1,9 +1,10 @@
 """수동 e2e 스모크 테스트.
 
-2026-08-19 기준 확정된 흐름만 검증한다:
-  - /internal/v1/audio/analyze, /internal/v1/tasks/extract는 삭제됨
-    (STT/화자분리는 backend-ai가, 업무 입력은 간호사 직접 입력이 담당)
-  - 이 서버가 실제로 맡는 건 tasks/prioritize + handoffs/precheck + handoffs/generate 뿐
+2026-08-19 밤 기준 확정된 흐름 (순서 중요 - "초안 먼저 → 역검증 나중"):
+  1. tasks/prioritize - 간호사가 직접 입력한 업무 우선순위 산정
+  2. handoffs/generate - 근거(evidence)로 인수인계 초안 생성 (7섹션 topic 구조)
+  3. handoffs/precheck - 방금 생성된 초안을 역검증 (누락/충돌/확인필요 카드 생성)
+     "인수인계 역검증" 노션 페이지 기준으로 재설계됨 - candidateSections 대조 방식 아님
 
 실행 전: `uvicorn main:app --port 8000`으로 서버 띄워두고,
 INTERNAL_API_TOKEN 환경변수를 .env와 동일하게 맞춰서 실행.
@@ -48,35 +49,7 @@ prioritize_result = post(
 for r in prioritize_result["results"]:
     print(f"  [{r['priority']}] score={r['score']} taskId={r['taskId']} - {r['reasons']}")
 
-print("\n=== STEP B: 오늘 기록 vs 후보 초안 대조 (역질문) ===")
-precheck_result = post(
-    "/internal/v1/handoffs/precheck",
-    {
-        "requestId": str(uuid.uuid4()),
-        "patients": [
-            {
-                "patientId": "301",
-                "recentEvents": [
-                    {
-                        "eventId": "e1",
-                        "patientId": "301",
-                        "type": "OBSERVATION",
-                        "summary": "최근 3일간 SpO2 94%~97% 반복 변동",
-                    }
-                ],
-                "candidateSections": {"situation": "환자 상태 안정적"},
-                "pendingTasks": [
-                    {"taskId": "t1", "patientId": "301", "title": "산소포화도 재측정", "carriedOver": True}
-                ],
-            }
-        ],
-        "lookbackShifts": 3,
-    },
-)
-for item in precheck_result["items"]:
-    print(f"  [{item['severity']}] {item['question']} - 근거: {item['reason']}")
-
-print("\n=== STEP C: 인수인계 초안 생성 (evidence 기반, 7섹션 topic) ===")
+print("\n=== STEP B: 인수인계 초안 생성 (evidence 기반, 7섹션 topic) ===")
 generate_result = post(
     "/internal/v1/handoffs/generate",
     {
@@ -94,5 +67,43 @@ generate_result = post(
 )
 for item in generate_result["items"]:
     print(f"  [{item['topic']}/{item['section']}] {item['title']}: {item['summary']} (confidence={item['confidence']})")
+
+print("\n=== STEP C: 방금 생성된 초안을 역검증 (누락/충돌/확인필요 카드) ===")
+# 초안엔 VITAL_SIGNS만 있는데, 근거는 RESPIRATION도 있다고 가정 -> 누락 카드가 나와야 함
+draft_items = [{"topic": item["topic"], "summary": item["summary"]} for item in generate_result["items"]]
+precheck_result = post(
+    "/internal/v1/handoffs/precheck",
+    {
+        "requestId": str(uuid.uuid4()),
+        "draftId": generate_result["draftId"],
+        "patientId": "301",
+        "draftItems": draft_items,
+        "candidateEvidence": [
+            {
+                "evidenceId": "ev-2",
+                "topic": "RESPIRATION",
+                "handoffSection": "호흡",
+                "structuredFacts": {"symptom": "기침", "trend": "야간 악화"},
+                "importanceFlags": ["follow_up_needed"],
+                "requiresNurseConfirmation": False,
+            }
+        ],
+        "openTasks": [
+            {
+                "taskId": "t1",
+                "title": "산소포화도 재측정",
+                "scopeType": "PATIENT",
+                "status": "TODO",
+                "patientId": "301",
+                "priorityMeta": {"patientStatusUrgency": "high", "isCarryOver": True},
+            }
+        ],
+    },
+)
+for item in precheck_result["verificationItems"]:
+    print(f"  [{item['severity']}/{item['type']}] {item['title']}")
+    print(f"     이유: {item['reason']}")
+    print(f"     제안 질문: {item['suggestedQuestion']}")
+    print(f"     제안 문장: {item['suggestedDraftText']}")
 
 print("\n=== 끝까지 정상 완료 ===")

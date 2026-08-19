@@ -110,19 +110,8 @@ class RegisterDiarizedSpeakerResponse(BaseModel):
     cache: dict[str, Any]
 
 
-class ClinicalEvent(CamelModel):
-    """노션 확정 스키마 (`/internal/v1/handoffs/precheck`의 recentEvents).
-    2026-08-19: 업무는 간호사 직접 입력으로 결정돼 `/tasks/extract`는 삭제됨 - 이제 precheck 전용.
-    누가 TimelineNote를 이 형태로 변환하는지는 아직 노션에 명시 안 됨 - 우리 AI 서버는
-    이 형태를 계약으로 받는다는 것만 확정."""
-    event_id: str
-    patient_id: str
-    type: str  # 노션 예시는 "OBSERVATION" 하나뿐, 전체 enum 미확정
-    summary: str
-
-
 class Task(CamelModel):
-    """노션 확정 스키마 (`/internal/v1/tasks/prioritize`의 tasks, precheck의 pendingTasks 공용)."""
+    """노션 확정 스키마 (`/internal/v1/tasks/prioritize`의 tasks)."""
     task_id: str
     patient_id: str
     title: str
@@ -136,17 +125,6 @@ class MissingItem(BaseModel):
     description: str
     ai_evidence: str
     severity: Literal["중요", "권장"]
-
-
-class PrecheckItem(CamelModel):
-    """노션 확정 스키마 (`/internal/v1/handoffs/precheck` 응답 items).
-    답변 4버튼(NO_ISSUE|INCLUDE_HANDOFF|UNVERIFIED|NOT_APPLICABLE)은 우리 응답에 없음 -
-    프론트가 고정 표시, 백엔드의 별도 '역질문 응답 저장' API가 answer를 받는 구조."""
-    patient_id: str
-    severity: str  # 노션 예시 "CRITICAL" 하나뿐, summary의 critical/recommended로 미루어 최소 2종 추정, 미확정
-    question: str
-    evidence_event_ids: list[str] = []
-    reason: str
 
 
 class PatientRisk(CamelModel):
@@ -175,22 +153,72 @@ class PrioritizeTasksResponse(CamelModel):
     results: list[PriorityResult]
 
 
-class PatientPrecheckInput(CamelModel):
+class DraftItemRef(CamelModel):
+    """역검증 대상이 되는, 이미 생성된 초안(handoffDraft)의 항목 요약."""
+    topic: str
+    summary: str
+
+
+class CandidateEvidence(CamelModel):
+    """역검증용 근거. generate의 DraftEvidence보다 풍부함 (structuredFacts/importanceFlags 포함) -
+    노션 '저장 로직' 페이지의 evidence 저장 구조와 짝을 이룸."""
+    evidence_id: str
+    topic: str
+    handoff_section: str
+    structured_facts: dict[str, str] = {}
+    importance_flags: list[str] = []
+    requires_nurse_confirmation: bool = False
+
+
+class TaskPriorityMeta(CamelModel):
+    patient_status_urgency: str | None = None  # high 등 - 전체 enum 미확정
+    time_constraint: str | None = None  # within_shift 등 - 전체 enum 미확정
+    is_carry_over: bool = False
+
+
+class OpenTask(CamelModel):
+    """환자 업무(scopeType=PATIENT)와 공통/병동 업무(WARD|SUPPLY|ADMIN|ROOM|PERSONAL_SHIFT) 공용."""
+    task_id: str
+    title: str
+    scope_type: str
+    status: str
+    patient_id: str | None = None
+    required_before_handoff: bool = False
+    priority_meta: TaskPriorityMeta | None = None
+
+
+class VerifyDraftRequest(CamelModel):
+    """노션 '인수인계 역검증'/'LLM 최종 제공 템플릿' 페이지 기준 (2026-08-19 재설계).
+    이전엔 candidateSections(초안 생성 전 텍스트)를 검증했으나, 지금은 이미 생성된 초안
+    (handoffDraft.items)을 검증하는 구조로 바뀜 - "초안 먼저 → 역검증 나중" 순서로 재확정됨."""
+    request_id: str
+    draft_id: str
     patient_id: str
-    recent_events: list[ClinicalEvent] = []
-    candidate_sections: dict[str, str] = {}  # 노션 예시는 {} 뿐 - field_id: 텍스트로 추정, 미확정
-    pending_tasks: list[Task] = []
+    draft_items: list[DraftItemRef] = []
+    candidate_evidence: list[CandidateEvidence] = []
+    open_tasks: list[OpenTask] = []
 
 
-class PrecheckRequest(CamelModel):
+class VerificationItem(CamelModel):
+    """노션 예시 기준 카드 구조. severity는 HIGH/MEDIUM 예시뿐이라 전체 enum 미확정,
+    type도 MISSING_HANDOFF_ITEM/OPEN_TASK_MISSING 예시뿐이라 전체 enum 미확정."""
+    id: str
+    patient_id: str
+    topic: str
+    type: str
+    severity: str
+    title: str
+    reason: str
+    suggested_question: str
+    suggested_draft_text: str
+    related_evidence_ids: list[str] = []
+    related_task_ids: list[str] = []
+    requires_nurse_confirmation: bool = True
+
+
+class VerifyDraftResponse(CamelModel):
     request_id: str
-    patients: list[PatientPrecheckInput]
-    lookback_shifts: int = 3
-
-
-class PrecheckResponse(CamelModel):
-    request_id: str
-    items: list[PrecheckItem]
+    verification_items: list[VerificationItem] = []
 
 
 # 인수인계 7개 섹션 (노션 "RAG 검색" 페이지 확정, PATIENT_STATUS/ACTIVITY는 기각된 안이라 안 씀)

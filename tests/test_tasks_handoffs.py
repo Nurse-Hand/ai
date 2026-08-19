@@ -38,17 +38,55 @@ def test_prioritize_tasks_echoes_request_id(monkeypatch):
     assert response.json()["requestId"] == request_id
 
 
-def test_precheck_handles_empty_batch(monkeypatch):
+def test_precheck_handles_no_candidates(monkeypatch):
     client = _client(monkeypatch)
     request_id = str(uuid.uuid4())
-    body = {"requestId": request_id, "patients": [], "lookbackShifts": 3}
+    body = {
+        "requestId": request_id,
+        "draftId": "draft-1",
+        "patientId": "p1",
+        "draftItems": [],
+        "candidateEvidence": [],
+        "openTasks": [],
+    }
     response = client.post(
         "/internal/v1/handoffs/precheck",
         headers={"X-Internal-Token": os.environ["INTERNAL_API_TOKEN"]},
         json=body,
     )
     assert response.status_code == 201
-    assert response.json() == {"requestId": request_id, "items": []}
+    assert response.json() == {"requestId": request_id, "verificationItems": []}
+
+
+def test_precheck_flags_missing_evidence_topic(monkeypatch):
+    client = _client(monkeypatch)
+    request_id = str(uuid.uuid4())
+    body = {
+        "requestId": request_id,
+        "draftId": "draft-1",
+        "patientId": "p1",
+        "draftItems": [{"topic": "VITAL_SIGNS", "summary": "SpO2 안정적"}],
+        "candidateEvidence": [
+            {
+                "evidenceId": "ev-1",
+                "topic": "RESPIRATION",
+                "handoffSection": "호흡",
+                "structuredFacts": {"symptom": "기침"},
+                "importanceFlags": ["follow_up_needed"],
+                "requiresNurseConfirmation": False,
+            }
+        ],
+        "openTasks": [],
+    }
+    response = client.post(
+        "/internal/v1/handoffs/precheck",
+        headers={"X-Internal-Token": os.environ["INTERNAL_API_TOKEN"]},
+        json=body,
+    )
+    assert response.status_code == 201
+    items = response.json()["verificationItems"]
+    assert len(items) == 1
+    assert items[0]["type"] == "MISSING_HANDOFF_ITEM"
 
 
 def test_generate_handles_no_evidence(monkeypatch):

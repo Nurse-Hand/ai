@@ -9,9 +9,9 @@ from app.schemas import (
     HANDOFF_SECTIONS,
     GenerateHandoffRequest,
     GenerateHandoffResponse,
-    PrecheckRequest,
-    PrecheckResponse,
-    PrecheckItem,
+    VerificationItem,
+    VerifyDraftRequest,
+    VerifyDraftResponse,
 )
 
 router = APIRouter(prefix="/internal/v1/handoffs", tags=["handoffs"], dependencies=[Depends(verify_internal_token)])
@@ -53,70 +53,95 @@ def generate_handoff(req: GenerateHandoffRequest) -> GenerateHandoffResponse:
     return result
 
 
-PRECHECK_SYSTEM_PROMPT = """너는 인수인계 후보 섹션(candidateSections)을 최근 임상 이벤트(recentEvents)·
-미완료 업무와 대조해 빠진 부분만 확인형 질문으로 만드는 도우미다. 환자 여러 명이 배치로 주어진다.
+PRECHECK_SYSTEM_PROMPT = """너는 이미 생성된 인수인계 초안(draftItems)을, 근거(candidateEvidence)와
+미완료 업무(openTasks)를 기준으로 다시 점검하는 역검증 도우미다. 초안을 새로 쓰지 않는다.
 
-절차를 반드시 이 순서로 따라라:
-1. 각 환자의 recentEvents 항목마다 핵심 임상 사실을 하나씩 나열한다.
-2. 나열한 사실마다, 같은 환자의 candidateSections 값 전체를 글자 그대로 다시 읽고
-   "이 사실과 같은 내용이 이미 candidateSections 안에 있는가"를 확인한다.
-   동의어나 다른 표현으로라도 이미 있으면 "있음"으로 처리한다.
-3. "있음"으로 확인된 사실은 절대 질문으로 만들지 않는다.
-4. candidateSections 어디에도 없는 사실만 질문으로 만든다. evidenceEventIds에는 그 사실의 근거가 된
-   eventId를 정확히 적어라 - 입력에 없는 eventId를 지어내면 안 된다.
-5. unmentionedPendingTasks로 주어진 미완료 업무는 이미 규칙으로 "candidateSections에 언급 안 됨"이
-   확인된 것들이다 - 이 목록에 있는 업무는 전부 "이 업무가 처리/확인됐는지" 묻는 질문으로 만들어라.
-6. severity는 환자 상태에 중대한 영향이면 "CRITICAL", 그 외 확인이 권장되는 수준이면 "RECOMMENDED"로 판단해라.
-
-이름 표기, 문장 형식, 어투 같은 사소하거나 행정적인 차이는 절대 지적하지 마라.
-확실하지 않으면 질문을 만들지 말고 넘어가라 - 애매할 땐 침묵이 낫다.
-질문 문장은 확인형으로만 써라 ("~하셨나요?"). 지시형 문장("~하셔야 합니다")은 금지한다.
-진단이나 처방을 제안하지 마라.
+절차:
+1. candidateSeeds로 주어진 항목들은 이미 규칙 기반으로 "초안에 없을 가능성이 있다"고 걸러진 후보다.
+   각 후보가 진짜로 다음 근무자에게 전달해야 할 내용인지, 아니면 무시해도 되는 잡음인지 판단해라.
+2. 환자 업무(scopeType=PATIENT)는 patientStatusUrgency·timeConstraint·isCarryOver를 보고 중요도를
+   판단해라. 공통 업무(scopeType != PATIENT)는 requiredBeforeHandoff/isCarryOver가 true면 특히
+   중요하게 봐라.
+3. 같은 topic의 candidateEvidence 중 structuredFacts가 서로 다르게 설명하는 것이 있으면(예: 같은
+   증상을 환자와 보호자가 다르게 말함) type을 "CONFLICT"로, reason에 어느 근거끼리 충돌하는지 적어라.
+4. type은 MISSING_HANDOFF_ITEM(초안에 없는 근거) | OPEN_TASK_MISSING(초안에 없는 업무) |
+   CONFLICT(근거 충돌) | LOW_CONFIDENCE(근거는 있으나 불확실) 중 하나로 판단해라.
+5. severity는 환자 상태·안전에 직접 영향이면 HIGH, 그 외 확인이 권장되는 수준이면 MEDIUM으로 판단해라.
+6. suggestedQuestion은 간호사가 한 번에 읽고 답할 수 있는 짧은 확인형 질문으로 써라
+   ("~을 인계에 포함할까요?"). 지시형 문장은 금지한다.
+7. suggestedDraftText는 초안에 바로 추가할 수 있는 한 줄 인수인계 문장으로 써라 - 진단·처방 금지,
+   사실만 정리.
+8. relatedEvidenceIds/relatedTaskIds에는 입력에 있는 evidenceId/taskId만 적어라 - 지어내면 안 된다.
+9. 후보가 진짜 문제없다고 판단되면 카드를 만들지 마라 - 애매할 땐 만들지 않는 게 낫다.
 반드시 한국어로만 답해라."""
 
 
-def _mentioned_in_sections(task_title: str, candidate_sections: dict[str, str]) -> bool:
+def _topic_in_draft(topic: str, draft_items: list) -> bool:
+    return any(item.topic == topic for item in draft_items)
+
+
+def _mentioned_in_draft(task_title: str, draft_items: list) -> bool:
     # ponytail: 단어 겹침 기반의 단순 체크. 동의어/다른 표현은 못 잡음 - 필요시 LLM 기반으로 업그레이드.
-    combined = " ".join(candidate_sections.values())
+    combined = " ".join(item.summary for item in draft_items)
     words = [w for w in task_title.split() if len(w) >= 2]
     return bool(words) and any(w in combined for w in words)
 
 
-@router.post("/precheck", response_model=PrecheckResponse, status_code=201)
-def precheck_handoff(req: PrecheckRequest) -> PrecheckResponse:
-    payload_patients = []
-    stub_items = []
-    for p in req.patients:
-        # 미완료 업무는 먼저 규칙(텍스트 겹침)으로 1차 필터링 - 이미 언급된 건 LLM한테 안 보냄
-        unmentioned = [t for t in p.pending_tasks if not _mentioned_in_sections(t.title, p.candidate_sections)]
-        payload_patients.append(
-            {
-                "patientId": p.patient_id,
-                "recentEvents": [e.model_dump(by_alias=True) for e in p.recent_events],
-                "candidateSections": p.candidate_sections,
-                "unmentionedPendingTasks": [t.model_dump(by_alias=True) for t in unmentioned],
-            }
-        )
-        if p.recent_events or unmentioned:
-            stub_items.append(
-                PrecheckItem(
-                    patient_id=p.patient_id,
-                    severity="RECOMMENDED",
-                    question="[stub] 최근 기록 대비 확인이 필요한 항목이 있나요?",
-                    reason="[stub] 근거 없음 (OPENAI_API_KEY 미설정)",
-                )
-            )
+def _rule_based_candidates(req: VerifyDraftRequest) -> list[dict]:
+    """규칙 기반 1차 검증 - LLM 부르기 전에 후보만 좁힌다 (노션 '인수인계 역검증' 페이지 기준)."""
+    candidates = []
+    for e in req.candidate_evidence:
+        if not _topic_in_draft(e.topic, req.draft_items):
+            candidates.append({"seedType": "MISSING_HANDOFF_ITEM", "evidence": e.model_dump(by_alias=True)})
+        elif e.requires_nurse_confirmation:
+            candidates.append({"seedType": "LOW_CONFIDENCE", "evidence": e.model_dump(by_alias=True)})
 
-    stub = PrecheckResponse(request_id=req.request_id, items=stub_items)
-    if not req.patients:
-        return stub
+    for t in req.open_tasks:
+        if t.status == "DONE":
+            continue
+        is_patient_task = t.scope_type == "PATIENT"
+        if is_patient_task and _mentioned_in_draft(t.title, req.draft_items):
+            continue
+        if not is_patient_task and not t.required_before_handoff:
+            continue
+        candidates.append({"seedType": "OPEN_TASK_MISSING", "task": t.model_dump(by_alias=True)})
+
+    return candidates
+
+
+@router.post("/precheck", response_model=VerifyDraftResponse, status_code=201)
+def precheck_handoff(req: VerifyDraftRequest) -> VerifyDraftResponse:
+    candidates = _rule_based_candidates(req)
+    stub = VerifyDraftResponse(
+        request_id=req.request_id,
+        verification_items=[
+            VerificationItem(
+                id=f"verify-stub-{i}",
+                patient_id=req.patient_id,
+                topic=c.get("evidence", c.get("task", {})).get("topic", "TASK"),
+                type=c["seedType"],
+                severity="MEDIUM",
+                title="[stub] 확인 필요 항목",
+                reason="[stub] 근거 없음 (OPENAI_API_KEY 미설정)",
+                suggested_question="[stub] 이 내용을 인계에 포함할까요?",
+                suggested_draft_text="",
+            )
+            for i, c in enumerate(candidates)
+        ],
+    )
+    if not candidates:
+        return VerifyDraftResponse(request_id=req.request_id, verification_items=[])
 
     payload = {
         "requestId": req.request_id,
-        "lookbackShifts": req.lookback_shifts,
-        "patients": payload_patients,
+        "draftId": req.draft_id,
+        "patientId": req.patient_id,
+        "draftItems": [d.model_dump(by_alias=True) for d in req.draft_items],
+        "candidateEvidence": [e.model_dump(by_alias=True) for e in req.candidate_evidence],
+        "openTasks": [t.model_dump(by_alias=True) for t in req.open_tasks],
+        "candidateSeeds": candidates,
     }
     user_content = json.dumps(payload, ensure_ascii=False)
-    result = call_structured(PRECHECK_SYSTEM_PROMPT, user_content, PrecheckResponse, stub)
+    result = call_structured(PRECHECK_SYSTEM_PROMPT, user_content, VerifyDraftResponse, stub)
     result.request_id = req.request_id  # LLM이 베껴 쓰게 두지 않고 항상 원본으로 덮어씀
     return result

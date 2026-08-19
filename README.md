@@ -54,14 +54,14 @@ pyannote.audio 4.x가 요구하는 `torch`/`torchaudio` 조합(`torch==2.11.0`, 
 | 메서드 | 경로 | 하는 일 |
 |---|---|---|
 | POST | `/internal/v1/tasks/prioritize` | 간호사가 직접 입력한 업무 목록에 우선순위 점수를 매긴다 |
-| POST | `/internal/v1/handoffs/precheck` | 최근 기록과 인수인계 후보 내용을 대조해 빠진 부분을 역질문으로 만든다 |
 | POST | `/internal/v1/handoffs/generate` | 근거(evidence)를 인수인계 7개 섹션으로 정리한 초안을 만든다 |
+| POST | `/internal/v1/handoffs/precheck` | **이미 생성된 초안**을 근거·업무와 다시 대조해 누락·충돌·확인필요 카드를 만든다 (역검증) |
+
+⚠️ 호출 순서 주의: `generate`가 먼저고 `precheck`(역검증)가 그 다음이다. 이름은 "precheck"(사전확인)이지만 실제로는 초안 생성 **후**에 그 초안을 검증하는 역할이다 — 2026-08-19 노션 "인수인계 역검증" 페이지 기준으로 순서가 이렇게 확정됐다. 엔드포인트 경로는 노션 공식 API 명세(`/internal/v1/handoffs/precheck`)를 그대로 유지했지만 내부 스키마는 완전히 새로 설계됐다.
 
 세 개 다 `requestId`를 요청 그대로 응답에 에코하고(LLM이 베껴 쓰게 두지 않고 서버가 강제로 덮어씀), 성공 시 `201`을 반환한다. 입력이 비어 있으면(업무 0개, 환자 0명, 근거 0개) LLM을 호출하지 않고 즉시 빈 결과를 반환한다 — 불필요한 API 비용을 아끼기 위함.
 
 **`/tasks/prioritize`**는 규칙 기반 1차 점수(`_rule_score`: 이월 여부 +3.0, 마감시각 있으면 +1.5, 위급 키워드 있으면 +2.0, 고위험 환자면 +2.0)를 먼저 계산한 뒤, gpt-4o-mini에게 그 점수의 근거를 한 문장으로 설명하게 한다. 점수 계산은 LLM한테 맡기지 않는다 — 같은 입력이면 항상 같은 점수가 나와야 하기 때문(재현성).
-
-**`/handoffs/precheck`**는 미완료 업무를 먼저 텍스트 겹침으로 1차 필터링해서(`_mentioned_in_sections`) 이미 후보 섹션에 언급된 건 LLM에 안 보낸다. 그 다음 최근 기록(`recentEvents`)을 후보 섹션(`candidateSections`)과 대조해서, 없는 내용만 확인형 질문으로 만든다.
 
 **`/handoffs/generate`**는 근거를 인수인계 7개 섹션(topic) 기준으로 묶어서 정리한다:
 
@@ -76,6 +76,14 @@ pyannote.audio 4.x가 요구하는 `torch`/`torchaudio` 조합(`torch==2.11.0`, 
 | `OBSERVATION` | 관찰사항·특이사항 |
 
 같은 topic의 여러 근거는 하나의 항목으로 압축되고, 각 항목은 실제로 인용한 근거(`evidenceRefs`, 원문 그대로 인용)를 달고 나온다. 근거가 서로 충돌하거나 애매하면 `requiresNurseConfirmation: true`로 표시된다.
+
+**`/handoffs/precheck`**(역검증)는 **이미 만들어진 초안**(`draftItems`)을 근거(`candidateEvidence`)·업무(`openTasks`)와 다시 대조한다. 먼저 규칙으로 후보를 좁힌다:
+- 근거의 topic이 초안에 없으면 → `MISSING_HANDOFF_ITEM` 후보
+- 근거가 `requiresNurseConfirmation=true`면 → `LOW_CONFIDENCE` 후보
+- 환자 업무(`scopeType=PATIENT`)가 완료 안 됐는데 초안 요약에 텍스트 겹침이 없으면 → `OPEN_TASK_MISSING` 후보
+- 공통 업무(`scopeType != PATIENT`)는 `requiredBeforeHandoff=true`면 무조건 후보
+
+이렇게 좁힌 후보만 LLM에 보내서, 진짜 문제인지 판단하고 카드(`verificationItems`)를 만든다. 각 카드는 `type`(`MISSING_HANDOFF_ITEM`/`OPEN_TASK_MISSING`/`CONFLICT`/`LOW_CONFIDENCE`), `severity`(`HIGH`/`MEDIUM`), 간호사에게 보여줄 `suggestedQuestion`, 초안에 바로 추가할 수 있는 `suggestedDraftText`를 포함한다.
 
 ### 음성 분석 (`/api/*`, 인증 불필요)
 
@@ -103,16 +111,17 @@ python e2e_test.py              # 서버를 띄운 채로 실행 - 실제 OpenAI
 - **업무는 AI가 추출하지 않는다.** 간호사가 직접 입력해서 DB에 저장하고, 우리는 `/tasks/prioritize`로 우선순위만 매긴다. 예전엔 `/tasks/extract`(AI 자동 추출)가 있었으나 삭제됨.
 - **원본 음성/발화는 이 서버가 직접 다루지 않는다.** `/api/diarization/analyze`가 STT+화자분리까지만 하고, 그 결과를 evidence로 가공·저장하는 건 Node.js 백엔드 몫이다.
 - **인수인계 템플릿은 SBAR가 아니다.** 위 7개 topic 기반 구조로 2026-08-19에 재설계됨.
+- **역검증은 초안 생성 이후에 한다.** `precheck`라는 이름과 달리 "사전" 검증이 아니라, 이미 만들어진 초안을 다시 점검하는 단계다. 이 순서가 세션 내내 두 번 뒤집혔다(검증 먼저→초안 먼저→검증 나중) — 지금 것(초안 먼저, 역검증 나중)이 2026-08-19 새벽 "인수인계 역검증" 노션 페이지 기준 최종.
 - 화자 임베딩은 현재 **MFCC mean/std 베이스라인**이다. 노션 설계 문서엔 SpeechBrain ECAPA로 적혀 있으나 아직 미적용 — 필요하면 `app/services/speaker_embedding.py`의 `SpeakerEmbeddingService`를 교체하면 된다.
 
 ## 노션 명세와 다른 점 (알려진 미확정 사항)
 
 노션 API 명세에 예시가 하나뿐이라 우리가 추론해서 구현한 부분들. 백엔드와 재확인 필요:
 
-- `PrecheckRequest.candidateSections`의 정확한 내부 형태 (현재 `dict[str, str]`로 가정)
-- `severity`(`CRITICAL`/`RECOMMENDED`?), `priority`, `PatientRisk.level`의 전체 enum 값
-- `ClinicalEvent.type`의 전체 enum 값 (`OBSERVATION` 외 후보: 와이어프레임 기준 관찰/일반/중요/상담/보고/처치 추정)
-- `GenerateHandoffRequest`의 `evidences` 구조는 "LLM 최종 제공 템플릿" 노션 페이지의 예시를 기반으로 역설계한 것 — 백엔드가 실제로 이 모양 그대로 보낼지 미확정
+- `severity`(`HIGH`/`MEDIUM`? precheck), `priority`, `PatientRisk.level`의 전체 enum 값
+- `VerificationItem.type`의 전체 enum 값 (`MISSING_HANDOFF_ITEM`/`OPEN_TASK_MISSING` 외 `CONFLICT`/`LOW_CONFIDENCE`는 우리가 노션 설명 텍스트 보고 이름 붙인 것 — 노션에 명시적 enum 값으로 나온 건 아님)
+- `OpenTask.scopeType`(`PATIENT`/`WARD`/`SUPPLY`/`ADMIN`/`ROOM`/`PERSONAL_SHIFT`)의 실제 값 체계가 백엔드 DB 스키마와 일치하는지
+- `GenerateHandoffRequest.evidences`, `VerifyDraftRequest.candidateEvidence`/`openTasks` 구조는 노션 "LLM 최종 제공 템플릿"/"인수인계 역검증" 페이지 예시를 기반으로 역설계한 것 — 백엔드가 실제로 이 모양 그대로 보낼지 미확정
 - `X-Idempotency-Key`, `X-Request-Id` 헤더는 노션 명세상 필수지만 아직 서버에서 검증/활용하지 않음
 
 ## 디렉토리 구조
