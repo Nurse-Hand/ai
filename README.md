@@ -21,7 +21,7 @@ OpenAI key가 없거나 STT/diarization이 구성되지 않은 경우 가짜 정
 | POST | `/internal/v1/tasks/prioritize` | `CRITICAL | HIGH | NORMAL` 제안, reasons, confidence |
 | POST | `/internal/v1/handoffs/precheck` | 초안 생성 전 `CRITICAL | RECOMMENDED` 확인 질문 |
 | POST | `/internal/v1/handoffs/generate` | frozen snapshot과 저장된 답변 기반 6-section 초안 |
-| POST | `/internal/v1/audio/analyze` | 동기 STT, utterance, diarized speaker 후보 |
+| POST | `/internal/v1/audio/analyze` | 동기 STT, utterance, diarized speaker candidate envelope |
 
 Task evidence ID와 Handoff citation은 요청 snapshot에 포함된 ID만 응답할 수 있다.
 `prioritize`는 숫자 score, `LOW` priority, 최종 확정값 또는 정렬 결과를 반환하지 않는다.
@@ -41,8 +41,10 @@ Handoff 호출 순서는 `precheck → 답변 저장/동결 snapshot → generat
 
 Audio는 `multipart/form-data`의 `audio`와 `sourceAudioFileId`를 받는다. 응답 utterance는
 `speakerLabel`, `startedAtMs`, `endedAtMs`, `text`, `confidence`,
-`sourceAudioFileId`를 가진다. diarized speaker의 후보는 최대 3개이며 자동 확정 필드는 없다.
-처리가 끝나면 내부 임시 파일을 삭제한다.
+`sourceAudioFileId`를 가진다. candidate schema는 화자별 최대 3개와 similarity를 지원하지만,
+Node Audio Port와 profile 입력 계약이 없는 현재 Adapter에서는 후보 조회가 비활성이고 빈 배열을
+반환할 수 있다. Python JSON profile 저장을 이 경로에 연결하지 않으며 자동 확정 필드도 없다.
+처리가 끝나면 내부 임시 파일을 검증하며 삭제하고, 삭제 실패 시 성공을 반환하지 않는다.
 
 ## 오류
 
@@ -68,6 +70,9 @@ Audio는 `multipart/form-data`의 `audio`와 `sourceAudioFileId`를 받는다. �
 | `DEEPGRAM_API_KEY` | STT provider |
 | `PYANNOTE_AUTH_TOKEN` | diarization model token |
 | `TMP_DIR` | 요청 처리 중에만 사용하는 임시 파일 경로 |
+| `AUDIO_MAX_UPLOAD_BYTES` | audio file byte 상한, 기본 25 MiB |
+| `AUDIO_MAX_REQUEST_BYTES` | multipart request byte 상한, 기본 26 MiB |
+| `AUDIO_PROCESSING_TIMEOUT_SECONDS` | ffmpeg/STT/diarization timeout, 기본 120초 |
 
 ## 로컬 실행과 검증
 
@@ -76,13 +81,14 @@ python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt
 .venv/Scripts/uvicorn main:app --port 8000
 .venv/Scripts/pytest
-.venv/Scripts/python scripts/generate_openapi.py --check
+python scripts/generate_openapi.py --check
+python -m scripts.generate_openapi --check
 ```
 
 OpenAPI를 의도적으로 변경한 경우 다음 명령으로 artifact를 다시 생성한다.
 
 ```bash
-.venv/Scripts/python scripts/generate_openapi.py
+python scripts/generate_openapi.py
 ```
 
 pytest fake는 실제 OpenAI, Deepgram, HuggingFace 호출이나 실제 환자·음성 fixture를 사용하지 않는다.

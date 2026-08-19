@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -23,7 +24,9 @@ app.include_router(speakers.router)
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_error_handler(_request: Request, _error: RequestValidationError):
+async def validation_error_handler(request: Request, error: RequestValidationError):
+    if not request.url.path.startswith("/internal/v1/"):
+        return await request_validation_exception_handler(request, error)
     return JSONResponse(
         status_code=422,
         content={"error": {"code": "INVALID_INPUT", "message": "Request validation failed."}},
@@ -45,7 +48,9 @@ async def inference_error_handler(_request: Request, error: InferenceFailure):
 
 
 @app.exception_handler(HTTPException)
-async def http_error_handler(_request: Request, error: HTTPException):
+async def http_error_handler(request: Request, error: HTTPException):
+    if not request.url.path.startswith("/internal/v1/"):
+        return await http_exception_handler(request, error)
     detail = error.detail if isinstance(error.detail, dict) else {"code": "HTTP_ERROR"}
     return JSONResponse(
         status_code=error.status_code,
@@ -64,10 +69,8 @@ def health(
         "deepgramConfigured": bool(settings.deepgram_api_key),
         "deepgramModel": settings.deepgram_model,
         "deepgramLanguage": settings.deepgram_language,
-        "localSttModelDir": str(settings.local_stt_model_dir) if settings.local_stt_model_dir else None,
+        "localSttConfigured": bool(settings.local_stt_model_dir),
         "pyannoteConfigured": bool(settings.pyannote_auth_token),
         "speakerEmbeddingBackend": "mfcc_mean_std",
         "speakerCount": len(speakers_list),
-        "dataDir": str(settings.data_dir),
-        "tmpDir": str(settings.tmp_dir),
     }
