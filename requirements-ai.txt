@@ -1,0 +1,5 @@
+torch==2.11.0
+torchaudio==2.11.0
+huggingface_hub>=0.28.1
+pyannote.audio==4.0.7
+sherpa-onnx==1.10.44

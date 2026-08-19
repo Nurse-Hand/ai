@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+openai
+python-dotenv
+python-multipart
+httpx
+numpy
+soundfile
+librosa
+pytest==8.4.1

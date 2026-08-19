@@ -1,0 +1,26 @@
+# 비밀값 - 절대 커밋 금지
+.env
+.env.*
+!.env.example
+
+# 가상환경
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# 런타임에 생성되는 데이터 (화자 등록 DB, 업로드된 오디오 임시파일)
+data/
+tmp/
+
+# 로그
+*.log
+
+# OS/에디터
+.DS_Store
+.vscode/
+.idea/
