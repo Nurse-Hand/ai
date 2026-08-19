@@ -24,12 +24,18 @@ SBOM and license obligations must be reviewed before production deployment.
   `_imagingft`; the LGPL-2.1-or-later full text is preserved at
   `licenses/LGPL-2.1-or-later.txt`. This notice and corresponding source provenance do not
   by themselves assert that every redistribution obligation has been discharged.
+- The deployment image removes the `_imagingft` native extension in the same layer that installs
+  the fixed wheel because OCR only requires PNG/JPEG decoding. The original wheel inventory,
+  corresponding source and license texts remain preserved for review.
 
 ### Optional runtime component
 
 - FriBiDi is loaded by the shim only when a compatible runtime library is available. The
   fixed wheel archive does not contain a `libfribidi` shared library, and the OCR image must
   keep the raqm feature unavailable.
+- Debian `libfribidi0` is nevertheless present as a transitive OS package in the Tesseract image;
+  removing Pillow `_imagingft` makes Pillow report raqm as unavailable (`None`) while the OS package remains in
+  the full-image SBOM and license review scope.
 
 ### Absent from the selected wheel
 

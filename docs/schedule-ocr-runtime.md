@@ -14,6 +14,10 @@
 - Pillow's official build documentation says distributed binaries do not enable GPLv3
   libimagequant. The image build independently asserts `libimagequant=False`, `raqm=False`,
   absence of libimagequant/fribidi/raqm archive names, and absence from `ldd` output.
+- Debian Tesseract installs `libfribidi0` transitively. The Docker build therefore removes the
+  OCR-unneeded Pillow `_imagingft` extension in the same pip layer, then rechecks both feature
+  state (`libimagequant=False`, `raqm=None`), PNG/JPEG core decoding and the final Pillow
+  native-library inventory.
 - The build also decodes generated PNG and JPEG bytes as a core Pillow smoke test.
 - Tesseract and English tessdata package versions are exact apt constraints.
 - The image build records the resolved Tesseract, tessdata, libtesseract and Leptonica
@@ -21,16 +25,16 @@
 
 The snapshot Release URLs and the official Pillow wheel URL returned HTTP 200 on
 2026-08-19. The Debian package and extracted model hashes in `ocr-components.lock` were
-computed from that fixed snapshot. Docker was not running in the verification environment,
-so an actual image build remains mandatory before engine enablement.
+computed from that fixed snapshot. An actual target-platform image build and full inventory
+review remain mandatory for every deployment candidate.
 
 The package-level Pillow SBOM includes optional source/build capabilities and must not be
 read as the selected wheel archive inventory. `Pillow-12.3.0-wheel-files.txt` records the
 actual fixed wheel members, and `Pillow-12.3.0-auditwheel.cdx.json` records auditwheel's
 binary inventory. The archive contained neither a libimagequant nor a fribidi shared object.
 Vendored raqm and the LGPL-2.1-or-later fribidi shim are compiled into `_imagingft`; FriBiDi
-itself remains an optional runtime library. Its absence and `raqm=False` are build gates for
-this OCR image.
+itself remains an optional runtime library. The deployment image removes `_imagingft` and
+requires Pillow to report `raqm=None`; Debian `libfribidi0` remains an OS-level SBOM item.
 
 ## Required build and inventory gate
 

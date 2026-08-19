@@ -25,8 +25,11 @@ def test_docker_runtime_uses_digest_snapshot_and_exact_packages() -> None:
     assert "liblept5=1.82.0-3+b3" in dockerfile
     assert "--no-deps --only-binary=:all: --require-hashes" in dockerfile
     assert "sha256sum -c -" in dockerfile
-    assert "check_feature('libimagequant') is False" in dockerfile
-    assert "check_feature('raqm') is False" in dockerfile
+    assert "rm -f /usr/local/lib/python3.11/site-packages/PIL/_imagingft*.so" in dockerfile
+    assert "iq=features.check_feature('libimagequant')" in dockerfile
+    assert "assert iq is False" in dockerfile
+    assert "rq=features.check_feature('raqm')" in dockerfile
+    assert "assert rq is None" in dockerfile
     assert "for f in ('PNG','JPEG')" in dockerfile
     assert "grep -Eiq 'imagequant|fribidi|raqm'" in dockerfile
 
@@ -50,6 +53,8 @@ def test_required_ocr_notices_and_upstream_inventory_are_preserved() -> None:
     assert "not a legal" in notices
     assert "not evidence that every optional component is bundled" in notices
     assert "Vendored raqm code" in notices
+    assert "removes the `_imagingft`" in notices
+    assert "Debian `libfribidi0`" in notices
     assert "pillow_sdist_sha256=3b8182a766685eaa" in (ROOT / "ocr-components.lock").read_text(encoding="utf-8")
 
 
