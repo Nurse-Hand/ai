@@ -9,12 +9,14 @@ from fastapi.responses import JSONResponse
 from app.config import Settings, get_settings
 from app.deps import get_speaker_store
 from app.errors import InferenceFailure, InferenceFailureCode
-from app.routers import diarization, handoffs, speakers, tasks
+from app.routers import audio, diarization, handoffs, speakers, tasks
 from app.services.speaker_store import SpeakerStore
 
 app = FastAPI(title="Nurse Hand AI Server", version="1.0.0")
 app.include_router(tasks.router)
 app.include_router(handoffs.router)
+app.include_router(audio.router)
+
 # Legacy external routes remain isolated until their compatibility/removal decision is made.
 app.include_router(diarization.router)
 app.include_router(speakers.router)
