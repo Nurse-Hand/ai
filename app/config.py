@@ -28,7 +28,8 @@ class Settings(BaseSettings):
     # 업무/인수인계 AI 판단 로직
     openai_api_key: Optional[str] = None
     openai_model: str = "gpt-4o-mini"
-    internal_api_token: Optional[str] = None
+    ai_timeout_seconds: float = 30.0
+    internal_token: Optional[str] = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
