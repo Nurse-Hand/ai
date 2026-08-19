@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from pathlib import Path
 from uuid import UUID, uuid4
 
 import httpx
@@ -31,6 +30,40 @@ from app.services.diarization import DiarizationService
 from app.services.transcription import TranscriptionService
 
 logger = logging.getLogger(__name__)
+_background_audio_finalizers: set[asyncio.Task[None]] = set()
+
+
+async def _finalize_audio_worker(
+    worker: asyncio.Task,
+    job_dir,
+    cleanup_attempts: int,
+) -> None:
+    try:
+        await worker
+    except asyncio.CancelledError:
+        logger.warning("Internal audio background worker was cancelled.")
+    except Exception:
+        logger.warning("Internal audio background worker failed.")
+    finally:
+        if not cleanup_job_dir(job_dir, cleanup_attempts):
+            logger.error("Internal audio background cleanup failed.")
+
+
+def _schedule_audio_finalizer(worker: asyncio.Task, job_dir, cleanup_attempts: int) -> None:
+    finalizer = asyncio.create_task(
+        _finalize_audio_worker(worker, job_dir, cleanup_attempts)
+    )
+    _background_audio_finalizers.add(finalizer)
+    finalizer.add_done_callback(_background_audio_finalizers.discard)
+
+
+async def drain_audio_finalizers(timeout_seconds: float = 5.0) -> None:
+    pending = tuple(_background_audio_finalizers)
+    if not pending:
+        return
+    _, still_pending = await asyncio.wait(pending, timeout=timeout_seconds)
+    if still_pending:
+        logger.warning("Internal audio background cleanup is still pending at shutdown.")
 
 
 def enforce_audio_request_size(
@@ -71,6 +104,8 @@ async def analyze_audio(
         raise HTTPException(status_code=422, detail={"code": "INVALID_INPUT"})
 
     job_dir = settings.tmp_dir / f"internal-analyze-{uuid4()}"
+    diarization_worker: asyncio.Task | None = None
+    cleanup_deferred = False
     try:
         uploaded_path = await persist_upload(
             audio, job_dir, max_bytes=settings.audio_max_upload_bytes
@@ -81,10 +116,21 @@ async def analyze_audio(
             transcription_service.transcribe(normalized_path),
             timeout=settings.audio_processing_timeout_seconds,
         )
-        diarization_available, segments = await asyncio.wait_for(
-            asyncio.to_thread(diarization_service.analyze, normalized_path),
-            timeout=settings.audio_processing_timeout_seconds,
+        diarization_worker = asyncio.create_task(
+            asyncio.to_thread(diarization_service.analyze, normalized_path)
         )
+        try:
+            diarization_available, segments = await asyncio.wait_for(
+                asyncio.shield(diarization_worker),
+                timeout=settings.audio_processing_timeout_seconds,
+            )
+        except asyncio.TimeoutError as error:
+            if not diarization_worker.done():
+                _schedule_audio_finalizer(
+                    diarization_worker, job_dir, settings.audio_cleanup_attempts
+                )
+                cleanup_deferred = True
+            raise InferenceFailure(InferenceFailureCode.TIMEOUT) from error
         if transcript.provider == "none" or not diarization_available:
             raise InferenceFailure(InferenceFailureCode.UNAVAILABLE)
 
@@ -141,6 +187,17 @@ async def analyze_audio(
     except Exception as error:
         raise InferenceFailure(InferenceFailureCode.UNAVAILABLE) from error
     finally:
-        if not cleanup_job_dir(job_dir, settings.audio_cleanup_attempts):
+        if (
+            diarization_worker is not None
+            and not diarization_worker.done()
+            and not cleanup_deferred
+        ):
+            _schedule_audio_finalizer(
+                diarization_worker, job_dir, settings.audio_cleanup_attempts
+            )
+            cleanup_deferred = True
+        if not cleanup_deferred and not cleanup_job_dir(
+            job_dir, settings.audio_cleanup_attempts
+        ):
             logger.error("Internal audio temporary cleanup failed.")
             raise InferenceFailure(InferenceFailureCode.UNAVAILABLE)

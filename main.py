@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,7 +15,14 @@ from app.errors import InferenceFailure, InferenceFailureCode
 from app.routers import audio, diarization, handoffs, speakers, tasks
 from app.services.speaker_store import SpeakerStore
 
-app = FastAPI(title="Nurse Hand AI Server", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    await audio.drain_audio_finalizers()
+
+
+app = FastAPI(title="Nurse Hand AI Server", version="1.0.0", lifespan=lifespan)
 app.include_router(tasks.router)
 app.include_router(handoffs.router)
 app.include_router(audio.router)

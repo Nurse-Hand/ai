@@ -1,10 +1,13 @@
 import asyncio
 from io import BytesIO
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
 from starlette.datastructures import Headers, UploadFile
 
+from app.config import Settings, get_settings
 from app.deps import get_diarization_service, get_transcription_service
 from app.routers import audio as audio_router
 from app.schemas import ServerTranscript, ServerTranscriptUtterance
@@ -255,6 +258,81 @@ def test_diarization_timeout_maps_to_504(client, auth_headers, monkeypatch):
         files={"audio": ("synthetic.wav", b"synthetic", "audio/wav")},
     )
     assert response.status_code == 504
+
+
+class DelayedBlockingDiarizationService:
+    def __init__(self, started, release, finished):
+        self.started = started
+        self.release = release
+        self.finished = finished
+
+    def analyze(self, _path):
+        self.started.set()
+        self.release.wait(timeout=1)
+        self.finished.set()
+        raise RuntimeError("SENSITIVE_RAW_PATH_AND_PAYLOAD")
+
+
+def test_blocking_diarization_timeout_tracks_worker_before_cleanup(
+    client, auth_headers, monkeypatch, tmp_path, caplog
+):
+    install_fakes(monkeypatch)
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    service = DelayedBlockingDiarizationService(started, release, finished)
+    settings = Settings(
+        internal_token="test-internal-token",
+        tmp_dir=tmp_path,
+        audio_processing_timeout_seconds=0.01,
+    )
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_diarization_service] = lambda: service
+
+    real_cleanup = audio_router.cleanup_job_dir
+    cleanup_observations = []
+    cleanup_finished = threading.Event()
+
+    def guarded_cleanup(job_dir, attempts):
+        cleanup_observations.append(finished.is_set())
+        result = real_cleanup(job_dir, attempts)
+        cleanup_finished.set()
+        return result
+
+    monkeypatch.setattr(audio_router, "cleanup_job_dir", guarded_cleanup)
+    started_at = time.perf_counter()
+    response = client.post(
+        "/internal/v1/audio/analyze",
+        headers=auth_headers,
+        data={"sourceAudioFileId": SOURCE_FILE_ID},
+        files={
+            "audio": (
+                "clinical-raw-name.wav",
+                b"SENSITIVE_RAW_AUDIO",
+                "audio/wav",
+            )
+        },
+    )
+    elapsed = time.perf_counter() - started_at
+
+    assert started.is_set()
+    assert response.status_code == 504
+    assert response.json()["error"]["code"] == "AI_UPSTREAM_TIMEOUT"
+    assert elapsed < 0.2
+    assert not finished.is_set()
+    assert cleanup_observations == []
+    assert len(list(tmp_path.glob("internal-analyze-*"))) == 1
+
+    release.set()
+    assert finished.wait(timeout=1)
+    assert cleanup_finished.wait(timeout=1)
+    assert cleanup_observations == [True]
+    assert list(tmp_path.glob("internal-analyze-*")) == []
+    assert "Internal audio background worker failed." in caplog.text
+    assert "Internal audio temporary cleanup failed." not in caplog.text
+    assert "clinical-raw-name" not in caplog.text
+    assert "SENSITIVE_RAW_AUDIO" not in caplog.text
+    assert "SENSITIVE_RAW_PATH_AND_PAYLOAD" not in caplog.text
 
 
 class MalformedTranscriptionService:
