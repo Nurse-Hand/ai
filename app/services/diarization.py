@@ -28,13 +28,19 @@ class DiarizationService:
         try:
             if not self.settings.pyannote_auth_token:
                 raise RuntimeError("PYANNOTE_AUTH_TOKEN is not set.")
+            import soundfile as sf
+            import torch
             from pyannote.audio import Pipeline  # type: ignore
 
             pipeline = Pipeline.from_pretrained(
                 self.settings.pyannote_diarization_model,
                 token=self.settings.pyannote_auth_token,
             )
-            output = pipeline(str(audio_path))
+            # torchaudio/torchcodec의 오디오 디코딩이 CUDA 런타임(libnvrtc)을 요구해서
+            # CPU 전용 환경에서 깨짐 - soundfile로 직접 읽어 waveform으로 넘겨 우회.
+            data, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=True)
+            waveform = torch.from_numpy(data.T)
+            output = pipeline({"waveform": waveform, "sample_rate": sample_rate})
             # pyannote.audio 4.x: Pipeline 호출 결과가 DiarizeOutput으로 한 단계 더 감싸짐
             # (3.x는 Annotation을 바로 반환, itertracks도 거기 있었음)
             diarization = output.speaker_diarization
