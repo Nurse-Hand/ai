@@ -135,7 +135,8 @@ class PatientRisk(CamelModel):
 class PriorityResult(CamelModel):
     task_id: str
     score: float
-    priority: str  # 노션 예시 "CRITICAL" 하나뿐, 전체 enum 미확정
+    priority: str  # CRITICAL/HIGH/NORMAL - 2026-08-20 백엔드의 TaskAiSuggestionDto.suggestedPriority 기준으로 3단계 확정
+    confidence: str = "MEDIUM"  # HIGH/MEDIUM/LOW - 백엔드 TaskAiSuggestionDto.confidence와 동일 스키마
     reasons: list[str] = []
 
 
