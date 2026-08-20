@@ -199,7 +199,21 @@
         </select>
       </div>
       <div class="field wide"><label>추가 근거 내용 (structuredFacts.symptom)</label><input id="v-symptom" value="기침" /></div>
-      <div class="field wide"><label>미완료 업무 제목 (환자 업무, scopeType=PATIENT)</label><input id="v-taskTitle" value="산소포화도 재측정" /></div>
+      <div class="field checkbox"><input type="checkbox" id="v-evidenceConfirm" /><label>이 근거는 requiresNurseConfirmation=true (초안 topic과 겹칠 때만 LOW_CONFIDENCE로 판정됨)</label></div>
+      <div class="field wide"><label>미완료 업무 제목</label><input id="v-taskTitle" value="산소포화도 재측정" /></div>
+      <div class="field checkbox"><input type="checkbox" id="v-taskIsPatient" checked /><label>환자 업무 (체크 해제 = 공통/병동 업무, patientId 없음)</label></div>
+      <div class="field"><label>업무 effectivePriority</label>
+        <select id="v-taskPriority">
+          <option value="CRITICAL">CRITICAL</option>
+          <option value="HIGH" selected>HIGH</option>
+          <option value="NORMAL">NORMAL</option>
+        </select>
+        <div class="hint">환자 업무는 항상 후보에 오르고, 공통 업무는 CRITICAL/HIGH일 때만 후보에 오름</div>
+      </div>
+      <div class="field"><label>업무 dueAt (선택)</label><input id="v-taskDueAt" placeholder="2026-08-20T06:00:00.000Z" /></div>
+      <div class="field"><label>업무 status</label>
+        <select id="v-taskStatus"><option value="TODO" selected>TODO</option><option value="IN_PROGRESS">IN_PROGRESS</option><option value="DONE">DONE (완료 - 후보에서 항상 제외)</option></select>
+      </div>
     </div>
     <details class="payload-preview"><summary>보낼 JSON 미리보기</summary><pre class="json-preview" id="preview-v"></pre></details>
     <div class="btn-row"><button class="run" onclick="callPrecheck()">▶ 테스트</button></div>
@@ -350,15 +364,17 @@ function buildPrecheckPayload() {
       handoffSection: document.getElementById('v-topic').selectedOptions[0].text,
       structuredFacts: { symptom: document.getElementById('v-symptom').value },
       importanceFlags: ['follow_up_needed'],
-      requiresNurseConfirmation: false,
+      requiresNurseConfirmation: document.getElementById('v-evidenceConfirm').checked,
     }],
+    // 2026-08-20: 백엔드가 실제 보내는 필드 기준(scopeType/priorityMeta 미구현) - patientId 유무로
+    // 환자/공통 업무를 구분하고, effectivePriority로 공통 업무 중요도를 판단함.
     openTasks: [{
       taskId: 't-dashboard-1',
       title: document.getElementById('v-taskTitle').value,
-      scopeType: 'PATIENT',
-      status: 'TODO',
-      patientId: document.getElementById('g-patientId').value,
-      priorityMeta: { patientStatusUrgency: 'high', isCarryOver: true },
+      status: document.getElementById('v-taskStatus').value,
+      patientId: document.getElementById('v-taskIsPatient').checked ? document.getElementById('g-patientId').value : null,
+      dueAt: document.getElementById('v-taskDueAt').value || null,
+      effectivePriority: document.getElementById('v-taskPriority').value,
     }],
   };
 }
