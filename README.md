@@ -53,7 +53,8 @@ pyannote.audio 4.x가 요구하는 `torch`/`torchaudio` 조합(`torch==2.11.0`, 
 
 | 메서드 | 경로 | 하는 일 |
 |---|---|---|
-| POST | `/internal/v1/tasks/prioritize` | 간호사가 직접 입력한 업무 목록에 우선순위 점수를 매긴다 |
+| POST | `/internal/v1/tasks/prioritize` | 간호사가 직접 입력한(또는 `/tasks/extract`로 추출된) 업무 목록에 우선순위 점수를 매긴다 |
+| POST | `/internal/v1/tasks/extract` | 라운딩/빠른기록 근거(evidence summary)에서 업무 후보를 규칙 기반(키워드 매칭)으로 추출한다. LLM 미사용 — 2026-08-20 백엔드 요청으로 부활(아래 "아키텍처 결정 배경" 참고) |
 | POST | `/internal/v1/handoffs/generate` | 근거(evidence)를 인수인계 7개 섹션으로 정리한 초안을 만든다 |
 | POST | `/internal/v1/handoffs/precheck` | **이미 생성된 초안**을 근거·업무와 다시 대조해 누락·충돌·확인필요 카드를 만든다 (역검증) |
 
@@ -61,7 +62,7 @@ pyannote.audio 4.x가 요구하는 `torch`/`torchaudio` 조합(`torch==2.11.0`, 
 
 세 개 다 `requestId`를 요청 그대로 응답에 에코하고(LLM이 베껴 쓰게 두지 않고 서버가 강제로 덮어씀), 성공 시 `201`을 반환한다. 입력이 비어 있으면(업무 0개, 환자 0명, 근거 0개) LLM을 호출하지 않고 즉시 빈 결과를 반환한다 — 불필요한 API 비용을 아끼기 위함.
 
-**`/tasks/prioritize`**는 규칙 기반 1차 점수(`_rule_score`: 이월 여부 +3.0, 마감시각 있으면 +1.5, 위급 키워드 있으면 +2.0, 고위험 환자면 +2.0)를 먼저 계산한 뒤, gpt-4o-mini에게 그 점수의 근거를 한 문장으로 설명하게 한다. 점수 계산은 LLM한테 맡기지 않는다 — 같은 입력이면 항상 같은 점수가 나와야 하기 때문(재현성).
+**`/tasks/prioritize`**는 규칙 기반 1차 점수(`_rule_score`: 이월 여부 +3.0, 마감시각 있으면 +1.5, 위급 키워드 있으면 +2.0, 고위험 환자면 +2.0)를 계산해서 `priority`(`score>=5.5`→`CRITICAL`, `>=2.0`→`HIGH`, 그 외 `NORMAL`)와 `confidence`(매칭된 신호 개수 기준: 3개↑`HIGH`, 2개`MEDIUM`, 그 외 `LOW`)를 결정론적으로 정하고, gpt-4o-mini에게는 그 근거를 한 문장으로 설명하는 `reasons`만 맡긴다. `score`/`priority`/`confidence`는 LLM 응답을 무시하고 항상 서버 계산값으로 강제 덮어씀 — 같은 입력이면 항상 같은 결과가 나와야 하기 때문(재현성).
 
 **`/handoffs/generate`**는 근거(`evidences`, `topic`/`handoffSection`/`structuredFacts`/`importanceFlags` 포함 - `precheck`의 `candidateEvidence`와 동일한 `Evidence` 스키마 공용)와, 참고용 미완료 업무(`openTasks`, 선택)를 받아서 인수인계 7개 섹션(topic) 기준으로 묶어 정리한다:
 
@@ -108,7 +109,7 @@ python e2e_test.py              # 서버를 띄운 채로 실행 - 실제 OpenAI
 
 ## 아키텍처 결정 배경 (헷갈리기 쉬운 것들)
 
-- **업무는 AI가 추출하지 않는다.** 간호사가 직접 입력해서 DB에 저장하고, 우리는 `/tasks/prioritize`로 우선순위만 매긴다. 예전엔 `/tasks/extract`(AI 자동 추출)가 있었으나 삭제됨.
+- **업무는 기본적으로 간호사가 직접 입력한다.** `/tasks/prioritize`로 우선순위만 매기는 게 기본이었으나, 2026-08-20 백엔드가 실제 서비스에 "라운딩 근거에서 업무 후보 추출"(`task-extraction-jobs`) 기능이 이미 라이브로 나가 있다고 알려와 `/tasks/extract`를 부활시킴(`feat/task-ai-endpoints` 브랜치, `cf8a7a8`에 merge). LLM 없이 순수 키워드 매칭 규칙(`TASK_TITLE_RULES`)으로만 동작 — 필요시 `app/routers/tasks.py`의 `_derive_task_title()`을 LLM 기반으로 업그레이드하면 됨.
 - **원본 음성/발화는 이 서버가 직접 다루지 않는다.** `/api/diarization/analyze`가 STT+화자분리까지만 하고, 그 결과를 evidence로 가공·저장하는 건 Node.js 백엔드 몫이다.
 - **인수인계 템플릿은 SBAR가 아니다.** 위 7개 topic 기반 구조로 2026-08-19에 재설계됨.
 - **역검증은 초안 생성 이후에 한다.** `precheck`라는 이름과 달리 "사전" 검증이 아니라, 이미 만들어진 초안을 다시 점검하는 단계다. 이 순서가 세션 내내 두 번 뒤집혔다(검증 먼저→초안 먼저→검증 나중) — 지금 것(초안 먼저, 역검증 나중)이 2026-08-19 새벽 "인수인계 역검증" 노션 페이지 기준 최종.
@@ -120,15 +121,17 @@ python e2e_test.py              # 서버를 띄운 채로 실행 - 실제 OpenAI
 
 노션 API 명세에 예시가 하나뿐이라 우리가 추론해서 구현한 부분들. 백엔드와 재확인 필요:
 
-- `severity`(`HIGH`/`MEDIUM`? precheck), `priority`, `PatientRisk.level`의 전체 enum 값
-- `VerificationItem.type`의 전체 enum 값 (`MISSING_HANDOFF_ITEM`/`OPEN_TASK_MISSING` 외 `CONFLICT`/`LOW_CONFIDENCE`는 우리가 노션 설명 텍스트 보고 이름 붙인 것 — 노션에 명시적 enum 값으로 나온 건 아님)
+- `VerificationItem.type`의 전체 enum 값 (`MISSING_HANDOFF_ITEM`/`OPEN_TASK_MISSING` 외 `CONFLICT`/`LOW_CONFIDENCE`는 우리가 노션 설명 텍스트 보고 이름 붙인 것 — 노션에 명시적 enum 값으로 나온 건 아님. 다만 `CONFLICT`/`LOW_CONFIDENCE`가 실제로 발동하는 경우를 실서버에서 아직 못 봄)
 - `X-Idempotency-Key`, `X-Request-Id` 헤더는 노션 명세상 필수지만 아직 서버에서 검증/활용하지 않음
-- **precheck 요청의 정확한 shape** — 백엔드 확인 결과 "precheck AI 내부 입력 타입은 현재 `patients[].tasks[].id`로 되어 있다"는 답변을 받음. 우리 `openTasks`는 평평한 배열(`[{taskId, patientId, ...}]`)인데, 실제로 오는 게 이 모양이 맞는지, 아니면 `patients[].tasks[]`처럼 환자별로 중첩된 구조인지 아직 실제 요청 예시로 확인 못함 — 다음에 확인 필요
 
-### 2026-08-20 백엔드 확인으로 해결된 것
+### 2026-08-20 백엔드 확인 + 실서버(`api.nursehand.com`) 라이브 테스트로 해결된 것
 
 - **`OpenTask` 실제 필드**: `scopeType`/`requiredBeforeHandoff`/`priorityMeta.patientStatusUrgency`는 노션 문서의 목표 스키마일 뿐 백엔드에 아직 구현 안 됨(안 옴). 실제로 안정적으로 오는 필드는 `taskId`, `patientId`, `title`, `description`, `dueAt`, `status`, `effectivePriority`(`CRITICAL`/`HIGH`/`NORMAL`, `confirmedPriority ?? rulePriority`). `scope_type`/`required_before_handoff`/`priority_meta`는 스키마에 optional로 남겨뒀다 — 나중에 백엔드가 구현하면 자동으로 쓰이도록.
 - 이 변경으로 `precheck`의 환자/공통 업무 판단 로직을 `scopeType`/`requiredBeforeHandoff` 대신 `patientId` 유무 + `effectivePriority`로 다시 짬 (위 API 엔드포인트 섹션 참고). 이전 로직 그대로였으면 `OPEN_TASK_MISSING` 카드가 하나도 안 생기는 상태였음(백엔드가 안 보내는 필드에만 의존했었기 때문).
+- **`precheck`의 `openTasks` shape는 평평한 배열이 맞다.** DB의 `HandoffPrecheckTaskInput` 테이블 구조(taskId/patientId가 한 행에 있는 flat row)와 실서버 라이브 호출 둘 다로 확인 — `patients[].tasks[]` 같은 중첩 구조 아님.
+- **`severity`는 `HIGH`/`MEDIUM` 2개가 맞다(3번째 없음).** 백엔드가 자기 쪽 `HandoffPrecheckItemDto.severity`(`CRITICAL`/`RECOMMENDED`)로 `HIGH→CRITICAL`, `MEDIUM→RECOMMENDED` 매핑해서 씀 — 우리가 `CRITICAL`/`RECOMMENDED`를 직접 낼 필요 없음.
+- **`priority`(`/tasks/prioritize`)는 `CRITICAL`/`HIGH`/`NORMAL` 3단계 + `confidence`(`HIGH`/`MEDIUM`/`LOW`) 필드 추가.** 백엔드 `TaskAiSuggestionDto`가 이 모양을 그대로 기대함. `PatientRisk.level`은 여전히 `HIGH` 예시 하나뿐이라 미확정.
+- **`generate`/`precheck`/`prioritize`/`extract` 전부 실서버에서 실제 HTTP 호출로 라이브 검증 완료** (`modelVersion: "http-handoff-precheck-v1"`, `"http-handoff-draft-v1"` — 예전엔 `deterministic-*` 스텁이었음). 근거 없는 섹션은 지어내지 않고 정직하게 "추가로 확인된 특이 근거가 없습니다"로 나오는 것까지 실제 프로덕션 응답으로 확인함. 완전히 새 yearMonth(`2026-10`)로 재현 테스트까지 통과 — 우연 아님.
 
 ## Docker
 
