@@ -1,8 +1,13 @@
+from typing import Dict, Optional, Tuple
+
 from fastapi import APIRouter, Depends
 
 from app.auth import verify_internal_token
 from app.llm import call_structured
 from app.schemas import (
+    ExtractTaskCandidate,
+    ExtractTasksRequest,
+    ExtractTasksResponse,
     PrioritizeTasksRequest,
     PrioritizeTasksResponse,
     PriorityResult,
@@ -68,6 +73,52 @@ PRIORITY_REASON_SYSTEM_PROMPT = """너는 간호사가 직접 입력한 업무 �
 carriedOver·dueAt 값을 근거로 위 5가지 기준 중 어떤 게 이 업무에 해당하는지 한 문장으로 짧게 설명해라.
 반드시 한국어로만 답해라."""
 
+TASK_TITLE_RULES = [
+    ("산소", "산소 상태 확인"),
+    ("호흡", "호흡 상태 확인"),
+    ("통증", "통증 재평가"),
+    ("출혈", "출혈 상태 확인"),
+    ("낙상", "낙상 후 상태 확인"),
+    ("식사", "식이 섭취 확인"),
+    ("섭취", "식이 섭취 확인"),
+    ("배액", "배액 상태 확인"),
+    ("드레싱", "드레싱 확인"),
+]
+
+
+@router.post("/extract", response_model=ExtractTasksResponse, status_code=201)
+def extract_tasks(
+    req: ExtractTasksRequest,
+) -> ExtractTasksResponse:
+    grouped: Dict[Tuple[Optional[str], str], dict] = {}
+
+    for index, evidence in enumerate(req.evidence):
+        title = _derive_task_title(evidence.summary)
+        group_key = (evidence.patient_id, title)
+        existing = grouped.get(group_key)
+
+        if existing is None:
+            grouped[group_key] = {
+                "candidate": ExtractTaskCandidate(
+                    candidate_key=f"candidate-{index + 1}",
+                    patient_id=evidence.patient_id,
+                    title=title,
+                    description=evidence.summary.strip(),
+                    due_at=None,
+                    evidence_source_ids=[evidence.source_id],
+                ),
+            }
+            continue
+
+        candidate: ExtractTaskCandidate = existing["candidate"]
+        if evidence.source_id not in candidate.evidence_source_ids:
+            candidate.evidence_source_ids.append(evidence.source_id)
+
+    return ExtractTasksResponse(
+        request_id=req.request_id,
+        candidates=[item["candidate"] for item in grouped.values()],
+    )
+
 
 @router.post("/prioritize", response_model=PrioritizeTasksResponse, status_code=201)
 def prioritize_tasks(
@@ -111,3 +162,11 @@ def prioritize_tasks(
         for r in scored
     ]
     return result
+
+
+def _derive_task_title(summary: str) -> str:
+    normalized = summary.strip()
+    for keyword, title in TASK_TITLE_RULES:
+        if keyword in normalized:
+            return title
+    return "라운딩 후속 확인"

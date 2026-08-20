@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Dict, List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
@@ -35,7 +36,7 @@ async def analyze_diarization(
     diarization_available, raw_segments = diarization_service.analyze(normalized_path)
     registered_speakers = speaker_store.list()
 
-    speaker_embeddings: dict[str, list[float] | None] = {}
+    speaker_embeddings: Dict[str, Optional[List[float]]] = {}
     diarized_speakers = sorted({segment.diarized_speaker for segment in raw_segments})
     for diarized_speaker in diarized_speakers:
         selected_segments = [

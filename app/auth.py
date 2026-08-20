@@ -1,9 +1,13 @@
+from typing import Optional
+
 import os
 
 from fastapi import Header, HTTPException
 
 
-async def verify_internal_token(x_internal_token: str | None = Header(None)) -> None:
+async def verify_internal_token(
+    x_internal_token: Optional[str] = Header(None),
+) -> None:
     """백엔드->AI 서버 내부 호출 인증. Header: X-Internal-Token: {serviceToken} (노션 확정)"""
     expected = os.getenv("INTERNAL_API_TOKEN")
     if not expected:

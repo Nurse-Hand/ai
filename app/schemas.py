@@ -113,10 +113,36 @@ class RegisterDiarizedSpeakerResponse(BaseModel):
 class Task(CamelModel):
     """노션 확정 스키마 (`/internal/v1/tasks/prioritize`의 tasks)."""
     task_id: str
-    patient_id: str
+    patient_id: Optional[str] = None
     title: str
-    due_at: str | None = None
+    due_at: Optional[str] = None
     carried_over: bool = False
+
+
+class TaskExtractionEvidence(CamelModel):
+    source_id: str
+    patient_id: Optional[str] = None
+    summary: str
+    work_date: str
+
+
+class ExtractTaskCandidate(CamelModel):
+    candidate_key: str
+    patient_id: Optional[str] = None
+    title: str
+    description: Optional[str] = None
+    due_at: Optional[str] = None
+    evidence_source_ids: list[str]
+
+
+class ExtractTasksRequest(CamelModel):
+    request_id: str
+    evidence: list[TaskExtractionEvidence]
+
+
+class ExtractTasksResponse(CamelModel):
+    request_id: str
+    candidates: list[ExtractTaskCandidate]
 
 
 class MissingItem(BaseModel):
@@ -175,8 +201,8 @@ class Evidence(CamelModel):
 
 
 class TaskPriorityMeta(CamelModel):
-    patient_status_urgency: str | None = None  # high 등 - 전체 enum 미확정
-    time_constraint: str | None = None  # within_shift 등 - 전체 enum 미확정
+    patient_status_urgency: Optional[str] = None  # high 등 - 전체 enum 미확정
+    time_constraint: Optional[str] = None  # within_shift 등 - 전체 enum 미확정
     is_carry_over: bool = False
 
 
@@ -191,13 +217,13 @@ class OpenTask(CamelModel):
     task_id: str
     title: str
     status: str
-    patient_id: str | None = None
-    description: str | None = None
-    due_at: str | None = None
-    effective_priority: str | None = None  # CRITICAL/HIGH/NORMAL - 백엔드 rulePriority/confirmedPriority 병합값
-    scope_type: str | None = None  # 아직 백엔드 미구현 - 오면 우선 사용
+    patient_id: Optional[str] = None
+    description: Optional[str] = None
+    due_at: Optional[str] = None
+    effective_priority: Optional[str] = None  # CRITICAL/HIGH/NORMAL - 백엔드 rulePriority/confirmedPriority 병합값
+    scope_type: Optional[str] = None  # 아직 백엔드 미구현 - 오면 우선 사용
     required_before_handoff: bool = False  # 아직 백엔드 미구현
-    priority_meta: TaskPriorityMeta | None = None  # 아직 백엔드 미구현
+    priority_meta: Optional[TaskPriorityMeta] = None  # 아직 백엔드 미구현
 
 
 class VerifyDraftRequest(CamelModel):
@@ -279,5 +305,3 @@ class GenerateHandoffResponse(CamelModel):
     patient_id: str
     rounding_session_id: str
     items: list[HandoffDraftItem] = []
-
-

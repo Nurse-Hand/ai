@@ -1,8 +1,9 @@
 import os
 import time
-from typing import TypeVar
-from pydantic import BaseModel
+from typing import Optional, TypeVar
+
 from openai import RateLimitError
+from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -27,7 +28,7 @@ def call_structured(system_prompt: str, user_content: str, response_model: type[
 
     # ponytail: OpenAI 조직 tier 업그레이드 직후 일부 요청이 랜덤하게 예전 rate limit에
     # 걸리는 전파 지연 케이스가 관측됨 - 짧은 재시도로 흡수. 계속 실패하면 그대로 raise.
-    last_error: RateLimitError | None = None
+    last_error: Optional[RateLimitError] = None
     for attempt in range(3):
         try:
             completion = client.beta.chat.completions.parse(
