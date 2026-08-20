@@ -80,8 +80,8 @@ pyannote.audio 4.x가 요구하는 `torch`/`torchaudio` 조합(`torch==2.11.0`, 
 **`/handoffs/precheck`**(역검증)는 **이미 만들어진 초안**(`draftItems`)을 근거(`candidateEvidence`)·업무(`openTasks`)와 다시 대조한다. 먼저 규칙으로 후보를 좁힌다:
 - 근거의 topic이 초안에 없으면 → `MISSING_HANDOFF_ITEM` 후보
 - 근거가 `requiresNurseConfirmation=true`면 → `LOW_CONFIDENCE` 후보
-- 환자 업무(`scopeType=PATIENT`)가 완료 안 됐는데 초안 요약에 텍스트 겹침이 없으면 → `OPEN_TASK_MISSING` 후보
-- 공통 업무(`scopeType != PATIENT`)는 `requiredBeforeHandoff=true`면 무조건 후보
+- 환자 업무(`patientId`가 있는 업무)가 완료 안 됐는데 초안 요약에 제목의 의미있는 단어가 **전부** 들어있지 않으면 → `OPEN_TASK_MISSING` 후보 (2026-08-20: 단어 하나만 겹쳐도 "이미 언급됨"으로 스킵하던 걸 고침 — "혈압 재측정" 업무가 초안의 "혈압이 150/95로 상승" 관찰 기록과 `혈압`만 겹쳐서 오탐으로 사라지는 실사례 확인 후 수정)
+- 공통 업무(`patientId` 없음)는 `effectivePriority`가 `CRITICAL`/`HIGH`면 후보 (2026-08-20: `scopeType`/`requiredBeforeHandoff`는 백엔드가 아직 안 보내는 걸로 확인돼 `patientId` 유무 + `effectivePriority`로 대체함 — 아래 "노션 명세와 다른 점" 참고)
 
 이렇게 좁힌 후보만 LLM에 보내서, 진짜 문제인지 판단하고 카드(`verificationItems`)를 만든다. 각 카드는 `type`(`MISSING_HANDOFF_ITEM`/`OPEN_TASK_MISSING`/`CONFLICT`/`LOW_CONFIDENCE`), `severity`(`HIGH`/`MEDIUM`), 간호사에게 보여줄 `suggestedQuestion`, 초안에 바로 추가할 수 있는 `suggestedDraftText`를 포함한다.
 
@@ -112,7 +112,9 @@ python e2e_test.py              # 서버를 띄운 채로 실행 - 실제 OpenAI
 - **원본 음성/발화는 이 서버가 직접 다루지 않는다.** `/api/diarization/analyze`가 STT+화자분리까지만 하고, 그 결과를 evidence로 가공·저장하는 건 Node.js 백엔드 몫이다.
 - **인수인계 템플릿은 SBAR가 아니다.** 위 7개 topic 기반 구조로 2026-08-19에 재설계됨.
 - **역검증은 초안 생성 이후에 한다.** `precheck`라는 이름과 달리 "사전" 검증이 아니라, 이미 만들어진 초안을 다시 점검하는 단계다. 이 순서가 세션 내내 두 번 뒤집혔다(검증 먼저→초안 먼저→검증 나중) — 지금 것(초안 먼저, 역검증 나중)이 2026-08-19 새벽 "인수인계 역검증" 노션 페이지 기준 최종.
-- 화자 임베딩은 현재 **MFCC mean/std 베이스라인**이다. 노션 설계 문서엔 SpeechBrain ECAPA로 적혀 있으나 아직 미적용 — 필요하면 `app/services/speaker_embedding.py`의 `SpeakerEmbeddingService`를 교체하면 된다.
+- 화자 임베딩은 현재 **MFCC mean/std 베이스라인**이다. 노션 설계 문서엔 SpeechBrain ECAPA로 적혀 있으나 아직 미적용 — 필요하면 `app/services/speaker_embedding.py`의 `SpeakerEmbeddingService`를 교체하면 된다. 실제 녹음 6개로 등록/재인식 테스트해보니 2/3만 정확히 맞았다 — 후보들 유사도가 0.98~0.99 사이에 몰려 있어 변별력이 약한 편(등록 품질이 나쁘면 바로 오매칭으로 이어짐).
+- **`/handoffs/generate`는 `evidence.topic` 태그를 그대로 믿지 않는다.** LLM에 보낼 때 `topic` 필드명을 `originalTopicHint`로 바꿔서 보낸다 — "이미 분류된 정답"이라는 프레이밍을 주면 실제 텍스트 내용과 달라도 태그를 그대로 따라가는 경향이 실측으로 확인됐다(2026-08-20, 5개 시나리오 x 3회 재현). `temperature=0`도 같은 이유로 추가함(분류/판단 작업은 재현성이 창의성보다 중요).
+- **pyannote 화자분리는 파일 경로 대신 waveform을 직접 넘긴다.** CPU 전용 이미지에서 `torchcodec`(오디오 디코딩용)이 CUDA 런타임(`libnvrtc`)을 요구해서 매번 조용히 실패하고 화자 1명으로 뭉개지는 문제가 있었다 — `soundfile`로 직접 읽어서 `{"waveform":..., "sample_rate":...}` 딕셔너리로 넘기는 방식으로 우회함(`app/services/diarization.py`).
 
 ## 노션 명세와 다른 점 (알려진 미확정 사항)
 
@@ -120,9 +122,29 @@ python e2e_test.py              # 서버를 띄운 채로 실행 - 실제 OpenAI
 
 - `severity`(`HIGH`/`MEDIUM`? precheck), `priority`, `PatientRisk.level`의 전체 enum 값
 - `VerificationItem.type`의 전체 enum 값 (`MISSING_HANDOFF_ITEM`/`OPEN_TASK_MISSING` 외 `CONFLICT`/`LOW_CONFIDENCE`는 우리가 노션 설명 텍스트 보고 이름 붙인 것 — 노션에 명시적 enum 값으로 나온 건 아님)
-- `OpenTask.scopeType`(`PATIENT`/`WARD`/`SUPPLY`/`ADMIN`/`ROOM`/`PERSONAL_SHIFT`)의 실제 값 체계가 백엔드 DB 스키마와 일치하는지
-- `GenerateHandoffRequest.evidences`, `VerifyDraftRequest.candidateEvidence`/`openTasks` 구조는 노션 "LLM 최종 제공 템플릿"/"인수인계 역검증" 페이지 예시를 기반으로 역설계한 것 — 백엔드가 실제로 이 모양 그대로 보낼지 미확정
 - `X-Idempotency-Key`, `X-Request-Id` 헤더는 노션 명세상 필수지만 아직 서버에서 검증/활용하지 않음
+- **precheck 요청의 정확한 shape** — 백엔드 확인 결과 "precheck AI 내부 입력 타입은 현재 `patients[].tasks[].id`로 되어 있다"는 답변을 받음. 우리 `openTasks`는 평평한 배열(`[{taskId, patientId, ...}]`)인데, 실제로 오는 게 이 모양이 맞는지, 아니면 `patients[].tasks[]`처럼 환자별로 중첩된 구조인지 아직 실제 요청 예시로 확인 못함 — 다음에 확인 필요
+
+### 2026-08-20 백엔드 확인으로 해결된 것
+
+- **`OpenTask` 실제 필드**: `scopeType`/`requiredBeforeHandoff`/`priorityMeta.patientStatusUrgency`는 노션 문서의 목표 스키마일 뿐 백엔드에 아직 구현 안 됨(안 옴). 실제로 안정적으로 오는 필드는 `taskId`, `patientId`, `title`, `description`, `dueAt`, `status`, `effectivePriority`(`CRITICAL`/`HIGH`/`NORMAL`, `confirmedPriority ?? rulePriority`). `scope_type`/`required_before_handoff`/`priority_meta`는 스키마에 optional로 남겨뒀다 — 나중에 백엔드가 구현하면 자동으로 쓰이도록.
+- 이 변경으로 `precheck`의 환자/공통 업무 판단 로직을 `scopeType`/`requiredBeforeHandoff` 대신 `patientId` 유무 + `effectivePriority`로 다시 짬 (위 API 엔드포인트 섹션 참고). 이전 로직 그대로였으면 `OPEN_TASK_MISSING` 카드가 하나도 안 생기는 상태였음(백엔드가 안 보내는 필드에만 의존했었기 때문).
+
+## Docker
+
+이미지는 `jadest03/nurse-hand-ai:latest`로 Docker Hub에 public으로 올라가 있다 (CPU 전용, `python:3.11-slim` 기반, torch는 `--index-url https://download.pytorch.org/whl/cpu`로 설치해서 CUDA 패키지 없이 694MB 수준).
+
+```bash
+docker pull jadest03/nurse-hand-ai:latest
+docker run -d --env-file .env -p 8000:8000 jadest03/nurse-hand-ai:latest
+```
+
+로컬에서 백엔드(`kimgt2828/nursehand-server`) + DB(postgres) + 이 서버까지 한 번에 띄우려면 `docker-compose.local.yml`을 쓴다 (경로는 로컬 절대경로 기준이라 각자 환경에 맞게 `.env`의 `AI_DATA_DIR`/`AI_TMP_DIR`/`POSTGRES_DATA_DIR`/`FILE_STORAGE_ROOT` 등을 바꿔야 함). **`docker-compose.prod.yml`은 이 저장소에 없다** — 실서버(가비아) 배포용 compose는 배포 담당자가 별도로 관리하는 것으로 보임, 확인 필요.
+
+빌드 시 주의:
+- **amd64로 빌드해야 한다.** 개발 환경(Apple Silicon)에서 기본 `docker build`를 쓰면 `arm64` 이미지가 나와서 실서버(리눅스 amd64)에서 못 돈다. `docker buildx build --platform linux/amd64 ...`로 빌드할 것.
+- 이 네트워크에서는 `buildx ... --push` 직결이 자주 끊긴다(`broken pipe`) — `--load`로 로컬에 먼저 받은 다음 일반 `docker push`로 올리는 우회가 안정적이었음.
+- `dev-dashboard.html`, `README.md`는 `.dockerignore`에 있어서 이미지에 안 들어간다 — 이 파일들만 고쳤으면 이미지 재빌드 불필요.
 
 ## 디렉토리 구조
 
