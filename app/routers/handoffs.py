@@ -117,9 +117,12 @@ def _topic_in_draft(topic: str, draft_items: list) -> bool:
 
 def _mentioned_in_draft(task_title: str, draft_items: list) -> bool:
     # ponytail: 단어 겹침 기반의 단순 체크. 동의어/다른 표현은 못 잡음 - 필요시 LLM 기반으로 업그레이드.
+    # 단어 중 하나라도 겹치면 "언급됨"으로 보면 오탐이 남 - 예: 업무 "혈압 재측정"이 초안의
+    # "혈압이 150/95로 상승" 관찰 기록과 "혈압"만 겹쳐서 이미 언급된 걸로 잘못 스킵되는 실사례 확인됨.
+    # 제목의 의미있는 단어가 전부 있어야 "언급됨"으로 본다 - 애매하면 후보에 올려서 LLM이 최종 판단하게 함.
     combined = " ".join(item.summary for item in draft_items)
     words = [w for w in task_title.split() if len(w) >= 2]
-    return bool(words) and any(w in combined for w in words)
+    return bool(words) and all(w in combined for w in words)
 
 
 def _rule_based_candidates(req: VerifyDraftRequest) -> list[dict]:
