@@ -94,9 +94,9 @@ PRECHECK_SYSTEM_PROMPT = """너는 이미 생성된 인수인계 초안(draftIte
 절차:
 1. candidateSeeds로 주어진 항목들은 이미 규칙 기반으로 "초안에 없을 가능성이 있다"고 걸러진 후보다.
    각 후보가 진짜로 다음 근무자에게 전달해야 할 내용인지, 아니면 무시해도 되는 잡음인지 판단해라.
-2. 환자 업무(scopeType=PATIENT)는 patientStatusUrgency·timeConstraint·isCarryOver를 보고 중요도를
-   판단해라. 공통 업무(scopeType != PATIENT)는 requiredBeforeHandoff/isCarryOver가 true면 특히
-   중요하게 봐라.
+2. 환자 업무(patientId가 있는 업무)는 dueAt·effectivePriority(CRITICAL/HIGH/NORMAL)를 보고
+   중요도를 판단해라. effectivePriority가 CRITICAL/HIGH면 특히 중요하게 봐라. 공통 업무
+   (patientId가 없는 업무)는 그 자체로 후보에 오른 것이므로 기본적으로 중요하게 다뤄라.
 3. 같은 topic의 candidateEvidence 중 structuredFacts가 서로 다르게 설명하는 것이 있으면(예: 같은
    증상을 환자와 보호자가 다르게 말함) type을 "CONFLICT"로, reason에 어느 근거끼리 충돌하는지 적어라.
 4. type은 MISSING_HANDOFF_ITEM(초안에 없는 근거) | OPEN_TASK_MISSING(초안에 없는 업무) |
@@ -134,10 +134,14 @@ def _rule_based_candidates(req: VerifyDraftRequest) -> list[dict]:
     for t in req.open_tasks:
         if t.status == "DONE":
             continue
-        is_patient_task = t.scope_type == "PATIENT"
+        # 2026-08-20: scopeType/requiredBeforeHandoff는 백엔드가 아직 안 보내므로(항상 None/False),
+        # 실제로 오는 필드로 판단 - scopeType이 오면 그걸 우선 쓰고, 없으면 patientId 유무로
+        # 환자 업무 여부를 추정. 중요 업무 여부는 requiredBeforeHandoff 대신 effectivePriority로 판단.
+        is_patient_task = (t.scope_type == "PATIENT") if t.scope_type else bool(t.patient_id)
         if is_patient_task and _mentioned_in_draft(t.title, req.draft_items):
             continue
-        if not is_patient_task and not t.required_before_handoff:
+        is_important = t.required_before_handoff or t.effective_priority in ("CRITICAL", "HIGH")
+        if not is_patient_task and not is_important:
             continue
         candidates.append({"seedType": "OPEN_TASK_MISSING", "task": t.model_dump(by_alias=True)})
 

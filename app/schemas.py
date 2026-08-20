@@ -180,14 +180,23 @@ class TaskPriorityMeta(CamelModel):
 
 
 class OpenTask(CamelModel):
-    """환자 업무(scopeType=PATIENT)와 공통/병동 업무(WARD|SUPPLY|ADMIN|ROOM|PERSONAL_SHIFT) 공용."""
+    """환자 업무(scopeType=PATIENT)와 공통/병동 업무(WARD|SUPPLY|ADMIN|ROOM|PERSONAL_SHIFT) 공용.
+
+    2026-08-20: 백엔드 확인 결과 scopeType/requiredBeforeHandoff/priorityMeta는 아직
+    백엔드 Task 모델/DTO에 구현되지 않아 실제로는 안 옴 (노션 문서상의 목표 스키마일 뿐).
+    실제로 안정적으로 오는 필드는 taskId/patientId/title/description/dueAt/status/
+    effectivePriority - 이 기준으로 판단 로직을 다시 짬. scopeType 등은 나중에 백엔드가
+    구현하면 쓸 수 있도록 optional로 남겨둠."""
     task_id: str
     title: str
-    scope_type: str
     status: str
     patient_id: str | None = None
-    required_before_handoff: bool = False
-    priority_meta: TaskPriorityMeta | None = None
+    description: str | None = None
+    due_at: str | None = None
+    effective_priority: str | None = None  # CRITICAL/HIGH/NORMAL - 백엔드 rulePriority/confirmedPriority 병합값
+    scope_type: str | None = None  # 아직 백엔드 미구현 - 오면 우선 사용
+    required_before_handoff: bool = False  # 아직 백엔드 미구현
+    priority_meta: TaskPriorityMeta | None = None  # 아직 백엔드 미구현
 
 
 class VerifyDraftRequest(CamelModel):
